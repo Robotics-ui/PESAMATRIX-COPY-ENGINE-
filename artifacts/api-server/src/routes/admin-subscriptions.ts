@@ -47,6 +47,56 @@ const AdminActivateSchema = z.object({
   subscriptionId: z.string().uuid(),
 });
 
+// ─── Admin Settings (OpenAPI spec paths) ─────────────────────────────────────
+
+/**
+ * GET /admin/settings — mapped to OpenAPI spec's adminGetSettings.
+ */
+router.get("/settings", async (_req, res) => {
+  const [settings] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.key, "default"))
+    .limit(1);
+
+  res.json({
+    subscriptionFeePerDay: settings?.subscriptionFeePerDay ?? "100",
+    minimumSubscriptionDays: settings?.minimumSubscriptionDays ?? 7,
+    maximumSubscriptionDays: settings?.maximumSubscriptionDays ?? 365,
+    copyFactoryStrategyId: settings?.copyFactoryStrategyId ?? null,
+    masterMt5Login: settings?.masterMt5Login ?? null,
+  });
+});
+
+/**
+ * PATCH /admin/settings — mapped to OpenAPI spec's adminUpdateSettings.
+ */
+router.patch(
+  "/settings",
+  validateBody(UpdateSettingsSchema),
+  async (req: AuthRequest, res) => {
+    const body = req.body as z.infer<typeof UpdateSettingsSchema>;
+
+    const updated = await subscriptionService.updateSettings({
+      ...body,
+      updatedBy: req.user!.userId,
+    });
+
+    await logAudit("admin_settings_updated", req, {
+      userId: req.user!.userId,
+      targetId: "settings",
+      targetType: "admin_settings",
+      metadata: body,
+    });
+
+    res.json({
+      subscriptionFeePerDay: updated.subscriptionFeePerDay,
+      minimumSubscriptionDays: updated.minimumSubscriptionDays,
+      maximumSubscriptionDays: updated.maximumSubscriptionDays,
+    });
+  },
+);
+
 // ─── Admin Settings ──────────────────────────────────────────────────────────
 
 router.get("/subscription-settings", async (_req, res) => {
@@ -145,7 +195,7 @@ router.put("/plans/:id", validateBody(UpdatePlanSchema), async (req: AuthRequest
   const [existing] = await db
     .select()
     .from(plansTable)
-    .where(eq(plansTable.id, req.params.id))
+    .where(eq(plansTable.id, String(req.params["id"])))
     .limit(1);
 
   if (!existing) {
@@ -172,12 +222,12 @@ router.put("/plans/:id", validateBody(UpdatePlanSchema), async (req: AuthRequest
       ...(body.isActive !== undefined && { isActive: body.isActive }),
       updatedAt: new Date(),
     })
-    .where(eq(plansTable.id, req.params.id))
+    .where(eq(plansTable.id, String(req.params["id"])))
     .returning();
 
   await logAudit("admin_plan_updated", req, {
     userId: req.user!.userId,
-    targetId: req.params.id,
+    targetId: String(req.params["id"]),
     targetType: "plan",
     metadata: body,
   });
@@ -186,10 +236,11 @@ router.put("/plans/:id", validateBody(UpdatePlanSchema), async (req: AuthRequest
 });
 
 router.delete("/plans/:id", async (req: AuthRequest, res) => {
+  const planId = String(req.params["id"]);
   const [plan] = await db
     .select({ id: plansTable.id })
     .from(plansTable)
-    .where(eq(plansTable.id, req.params.id))
+    .where(eq(plansTable.id, planId))
     .limit(1);
 
   if (!plan) {
@@ -200,11 +251,11 @@ router.delete("/plans/:id", async (req: AuthRequest, res) => {
   await db
     .update(plansTable)
     .set({ isActive: false, updatedAt: new Date() })
-    .where(eq(plansTable.id, req.params.id));
+    .where(eq(plansTable.id, planId));
 
   await logAudit("admin_plan_updated", req, {
     userId: req.user!.userId,
-    targetId: req.params.id,
+    targetId: planId,
     targetType: "plan",
     metadata: { action: "deactivated" },
   });
@@ -263,11 +314,11 @@ router.get("/subscriptions/:id", async (req, res) => {
 
 router.post("/subscriptions/:id/expire", async (req: AuthRequest, res) => {
   try {
-    await subscriptionService.expireSubscription(req.params.id);
+    await subscriptionService.expireSubscription(String(req.params["id"]));
 
     await logAudit("subscription_expired", req, {
       userId: req.user!.userId,
-      targetId: req.params.id,
+      targetId: String(req.params["id"]),
       targetType: "subscription",
       metadata: { action: "admin_force_expire" },
     });
@@ -282,14 +333,14 @@ router.post("/subscriptions/:id/expire", async (req: AuthRequest, res) => {
 router.post("/subscriptions/:id/cancel", async (req: AuthRequest, res) => {
   try {
     await subscriptionService.cancelSubscription({
-      subscriptionId: req.params.id,
+      subscriptionId: String(req.params["id"]),
       userId: "",
       adminOverride: true,
     });
 
     await logAudit("subscription_cancelled", req, {
       userId: req.user!.userId,
-      targetId: req.params.id,
+      targetId: String(req.params["id"]),
       targetType: "subscription",
       metadata: { action: "admin_cancel" },
     });

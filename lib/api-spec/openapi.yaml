@@ -3,7 +3,7 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: PesaMatrix Copy Trading SaaS API
 servers:
   - url: /api
     description: Base API path
@@ -18,6 +18,13 @@ tags:
     description: Admin — Master MT5 account & CopyFactory strategy
   - name: mt5
     description: User — MT5 account management via MetaApi
+  - name: payments
+    description: M-Pesa payment operations
+  - name: subscriptions
+    description: Subscription management
+  - name: trading
+    description: Trading signals and performance
+
 paths:
   /healthz:
     get:
@@ -32,7 +39,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  # ── Auth ────────────────────────────────────────────────────────────────────
+  # ── Auth ─────────────────────────────────────────────────────────────────────
   /auth/register:
     post:
       operationId: register
@@ -131,6 +138,196 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /auth/me/update:
+    patch:
+      operationId: updateProfile
+      tags: [auth]
+      summary: Update current user profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Plans (public) ───────────────────────────────────────────────────────────
+  /public/plans:
+    get:
+      operationId: listPlans
+      tags: [subscriptions]
+      summary: List active subscription plans
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlansResponse"
+
+  # ── Subscriptions ────────────────────────────────────────────────────────────
+  /subscriptions/my:
+    get:
+      operationId: getMySubscription
+      tags: [subscriptions]
+      summary: Get current user subscription status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MySubscriptionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /subscriptions/history:
+    get:
+      operationId: getSubscriptionHistory
+      tags: [subscriptions]
+      summary: Get subscription history for current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionHistoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Payments ─────────────────────────────────────────────────────────────────
+  /payments/initiate:
+    post:
+      operationId: initiatePayment
+      tags: [payments]
+      summary: Initiate M-Pesa STK Push payment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentInitiateRequest"
+      responses:
+        "200":
+          description: STK Push sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentInitiateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /payments/status/{checkoutRequestId}:
+    get:
+      operationId: getPaymentStatus
+      tags: [payments]
+      summary: Poll payment status by checkout request ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: checkoutRequestId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentStatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /payments/history:
+    get:
+      operationId: getPaymentHistory
+      tags: [payments]
+      summary: Get payment history for current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentHistoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Trading / Signals ────────────────────────────────────────────────────────
+  /trading/signals:
+    get:
+      operationId: getTradingSignals
+      tags: [trading]
+      summary: Get recent copied trade signals for current subscriber
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradingSignalsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /trading/performance:
+    get:
+      operationId: getTradingPerformance
+      tags: [trading]
+      summary: Get subscriber trading performance summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradingPerformanceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /trading/dashboard:
+    get:
+      operationId: getSubscriberDashboard
+      tags: [trading]
+      summary: Subscriber dashboard — signals count, win rate, active plan, total profit
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriberDashboardResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   # ── Admin general ────────────────────────────────────────────────────────────
   /admin/dashboard:
     get:
@@ -222,13 +419,115 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  relationships:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/CopyFactoryRelationship"
-                required: [relationships]
+                $ref: "#/components/schemas/AdminSubscribersResponse"
+
+  /admin/subscriptions:
+    get:
+      operationId: adminListSubscriptions
+      tags: [admin]
+      summary: List all subscriptions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSubscriptionsResponse"
+
+  /admin/plans:
+    get:
+      operationId: adminListPlans
+      tags: [admin]
+      summary: List all plans
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlansResponse"
+    post:
+      operationId: adminCreatePlan
+      tags: [admin]
+      summary: Create a subscription plan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanResponse"
+
+  /admin/plans/{id}:
+    patch:
+      operationId: adminUpdatePlan
+      tags: [admin]
+      summary: Update a subscription plan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /admin/settings:
+    get:
+      operationId: adminGetSettings
+      tags: [admin]
+      summary: Get admin platform settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettingsResponse"
+    patch:
+      operationId: adminUpdateSettings
+      tags: [admin]
+      summary: Update admin platform settings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSettingsUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettingsResponse"
 
   # ── Master account (admin) ───────────────────────────────────────────────────
   /admin/master-account:
@@ -614,6 +913,16 @@ components:
           type: string
       required: [accessToken]
 
+    ProfileUpdate:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+
     UserProfile:
       type: object
       properties:
@@ -626,11 +935,11 @@ components:
           type: string
           enum: [admin, subscriber]
         firstName:
-          type: string
-          nullable: true
+          type: ["string", "null"]
         lastName:
-          type: string
-          nullable: true
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -652,6 +961,328 @@ components:
           $ref: "#/components/schemas/UserProfile"
       required: [user]
 
+    # ── Plans ────────────────────────────────────────────────────────────────────
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        pricePerDay:
+          type: string
+        minimumDays:
+          type: integer
+        maximumDays:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, pricePerDay, minimumDays, maximumDays, features, isActive]
+
+    PlansResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plan"
+      required: [plans]
+
+    PlanResponse:
+      type: object
+      properties:
+        plan:
+          $ref: "#/components/schemas/Plan"
+      required: [plan]
+
+    PlanInput:
+      type: object
+      properties:
+        name:
+          type: string
+        pricePerDay:
+          type: string
+        minimumDays:
+          type: integer
+        maximumDays:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+      required: [name, pricePerDay, minimumDays, maximumDays]
+
+    PlanUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        pricePerDay:
+          type: string
+        minimumDays:
+          type: integer
+        maximumDays:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+
+    # ── Subscriptions ────────────────────────────────────────────────────────────
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, active, expired, cancelled]
+        isActive:
+          type: boolean
+        startDate:
+          type: ["string", "null"]
+          format: date-time
+        endDate:
+          type: ["string", "null"]
+          format: date-time
+        numberOfDays:
+          type: integer
+        amountPaid:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, planId, status, isActive, numberOfDays, amountPaid]
+
+    MySubscriptionResponse:
+      type: object
+      properties:
+        subscription:
+          type: ["object", "null"]
+          $ref: "#/components/schemas/Subscription"
+        plan:
+          type: ["object", "null"]
+          $ref: "#/components/schemas/Plan"
+        daysRemaining:
+          type: ["integer", "null"]
+        isActive:
+          type: boolean
+      required: [isActive]
+
+    SubscriptionHistoryResponse:
+      type: object
+      properties:
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Subscription"
+      required: [subscriptions]
+
+    AdminSubscriptionsResponse:
+      type: object
+      properties:
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Subscription"
+        total:
+          type: integer
+        active:
+          type: integer
+        expired:
+          type: integer
+      required: [subscriptions, total, active, expired]
+
+    # ── Payments ────────────────────────────────────────────────────────────────
+    PaymentInitiateRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        amount:
+          type: number
+        numberOfDays:
+          type: integer
+        planId:
+          type: string
+          format: uuid
+      required: [phone, amount, numberOfDays]
+
+    PaymentInitiateResponse:
+      type: object
+      properties:
+        checkoutRequestId:
+          type: string
+        merchantRequestId:
+          type: string
+        message:
+          type: string
+        paymentId:
+          type: string
+      required: [checkoutRequestId, message]
+
+    PaymentStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
+        mpesaRef:
+          type: ["string", "null"]
+        amount:
+          type: string
+        phone:
+          type: string
+        resultDesc:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+          format: date-time
+      required: [status, amount, phone]
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+        phone:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
+        mpesaRef:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, amount, phone, status, createdAt]
+
+    PaymentHistoryResponse:
+      type: object
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+      required: [payments]
+
+    # ── Trading ─────────────────────────────────────────────────────────────────
+    TradeSignal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        type:
+          type: string
+          enum: [open, close, modify]
+        direction:
+          type: string
+          enum: [buy, sell]
+        openPrice:
+          type: ["string", "null"]
+        closePrice:
+          type: ["string", "null"]
+        stopLoss:
+          type: ["string", "null"]
+        takeProfit:
+          type: ["string", "null"]
+        profit:
+          type: ["string", "null"]
+        pips:
+          type: ["string", "null"]
+        openedAt:
+          type: ["string", "null"]
+          format: date-time
+        closedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, symbol, type, direction, createdAt]
+
+    TradingSignalsResponse:
+      type: object
+      properties:
+        signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/TradeSignal"
+        total:
+          type: integer
+      required: [signals, total]
+
+    TradingPerformanceResponse:
+      type: object
+      properties:
+        totalTrades:
+          type: integer
+        winningTrades:
+          type: integer
+        losingTrades:
+          type: integer
+        winRate:
+          type: number
+        totalProfit:
+          type: number
+        totalPips:
+          type: number
+        weeklyData:
+          type: array
+          items:
+            type: object
+      required: [totalTrades, winningTrades, losingTrades, winRate, totalProfit, totalPips]
+
+    SubscriberDashboardResponse:
+      type: object
+      properties:
+        totalSignals:
+          type: integer
+        signalsThisWeek:
+          type: integer
+        winRate:
+          type: number
+        winRateChange:
+          type: number
+        activePlan:
+          type: ["string", "null"]
+        totalProfit:
+          type: number
+        profitChangePercent:
+          type: number
+        isSubscriptionActive:
+          type: boolean
+        daysRemaining:
+          type: ["integer", "null"]
+        subscriptionEndDate:
+          type: ["string", "null"]
+          format: date-time
+      required: [totalSignals, signalsThisWeek, winRate, winRateChange, totalProfit, profitChangePercent, isSubscriptionActive]
+
+    # ── Admin ───────────────────────────────────────────────────────────────────
     DashboardStats:
       type: object
       properties:
@@ -661,7 +1292,13 @@ components:
           type: integer
         subscriberUsers:
           type: integer
-      required: [totalUsers, adminUsers, subscriberUsers]
+        activeSubscriptions:
+          type: integer
+        totalRevenue:
+          type: number
+        pendingPayments:
+          type: integer
+      required: [totalUsers, adminUsers, subscriberUsers, activeSubscriptions, totalRevenue, pendingPayments]
 
     DashboardResponse:
       type: object
@@ -685,13 +1322,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UserProfile"
-      required: [users]
+        total:
+          type: integer
+      required: [users, total]
 
     UserDetailResponse:
       type: object
       properties:
         user:
           $ref: "#/components/schemas/UserProfile"
+        subscription:
+          type: ["object", "null"]
+          $ref: "#/components/schemas/Subscription"
         activity:
           type: array
           items:
@@ -707,6 +1349,40 @@ components:
             type: object
       required: [logs]
 
+    AdminSubscribersResponse:
+      type: object
+      properties:
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/CopyFactoryRelationship"
+      required: [relationships]
+
+    AdminSettingsResponse:
+      type: object
+      properties:
+        subscriptionFeePerDay:
+          type: string
+        minimumSubscriptionDays:
+          type: integer
+        maximumSubscriptionDays:
+          type: integer
+        copyFactoryStrategyId:
+          type: ["string", "null"]
+        masterMt5Login:
+          type: ["string", "null"]
+      required: [subscriptionFeePerDay, minimumSubscriptionDays, maximumSubscriptionDays]
+
+    AdminSettingsUpdate:
+      type: object
+      properties:
+        subscriptionFeePerDay:
+          type: string
+        minimumSubscriptionDays:
+          type: integer
+        maximumSubscriptionDays:
+          type: integer
+
     CopyFactoryRelationship:
       type: object
       properties:
@@ -719,8 +1395,7 @@ components:
         copyFactoryStrategyId:
           type: string
         copyFactorySubscriberId:
-          type: string
-          nullable: true
+          type: ["string", "null"]
         status:
           type: string
           enum: [pending, active, paused, removed, error]
@@ -748,8 +1423,7 @@ components:
         isMaster:
           type: boolean
         metaApiAccountId:
-          type: string
-          nullable: true
+          type: ["string", "null"]
         deploymentStatus:
           type: string
           enum: [not_deployed, deploying, deployed, failed, removed]
@@ -757,9 +1431,8 @@ components:
           type: string
           enum: [not_synced, synchronizing, synchronized, out_of_sync, error]
         lastSyncedAt:
-          type: string
+          type: ["string", "null"]
           format: date-time
-          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -773,8 +1446,7 @@ components:
         state:
           type: string
         connectionStatus:
-          type: string
-          nullable: true
+          type: ["string", "null"]
         isSynchronized:
           type: boolean
         deploymentStatus:
@@ -802,37 +1474,70 @@ components:
     MasterAccountResponse:
       type: object
       properties:
-        mt5Account:
-          $ref: "#/components/schemas/Mt5Account"
         metaApiAccountId:
           type: string
         copyFactoryStrategyId:
           type: string
         state:
           type: string
-      required: [mt5Account, metaApiAccountId, copyFactoryStrategyId]
+        message:
+          type: string
+      required: [metaApiAccountId, copyFactoryStrategyId, state]
 
     MasterAccountDetailResponse:
       type: object
       properties:
         mt5Account:
           $ref: "#/components/schemas/Mt5Account"
-        metaApiAccount:
-          type: object
-          nullable: true
-        settings:
-          type: object
-          nullable: true
+        metaApiAccountId:
+          type: ["string", "null"]
+        copyFactoryStrategyId:
+          type: ["string", "null"]
       required: [mt5Account]
 
     StrategyResponse:
       type: object
       properties:
-        strategy:
-          type: object
         strategyId:
           type: string
-      required: [strategy, strategyId]
+        name:
+          type: string
+        positionLifecycle:
+          type: string
+        maxTradeRisk:
+          type: number
+        raw:
+          type: object
+      required: [strategyId, name]
+
+    Mt5AccountsListResponse:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+      required: [accounts]
+
+    Mt5AccountResponse:
+      type: object
+      properties:
+        mt5Account:
+          $ref: "#/components/schemas/Mt5Account"
+      required: [mt5Account]
+
+    Mt5AccountDetailResponse:
+      type: object
+      properties:
+        mt5Account:
+          $ref: "#/components/schemas/Mt5Account"
+        metaApiAccount:
+          type: ["object", "null"]
+        copyFactoryRelationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/CopyFactoryRelationship"
+      required: [mt5Account, copyFactoryRelationships]
 
     RegisterMt5Request:
       type: object
@@ -855,8 +1560,6 @@ components:
           type: string
         multiplier:
           type: number
-          minimum: 0.01
-          maximum: 100
       required: [password]
 
     DeployMt5Response:
@@ -868,45 +1571,12 @@ components:
           type: string
         copyFactoryRelationshipId:
           type: string
-          format: uuid
         state:
           type: string
-      required: [metaApiAccountId, copyFactoryStrategyId]
+      required: [metaApiAccountId, state]
 
     RegisterCopyFactoryRequest:
       type: object
       properties:
         multiplier:
           type: number
-          minimum: 0.01
-          maximum: 100
-
-    Mt5AccountResponse:
-      type: object
-      properties:
-        mt5Account:
-          $ref: "#/components/schemas/Mt5Account"
-      required: [mt5Account]
-
-    Mt5AccountDetailResponse:
-      type: object
-      properties:
-        mt5Account:
-          $ref: "#/components/schemas/Mt5Account"
-        metaApiAccount:
-          type: object
-          nullable: true
-        copyFactoryRelationships:
-          type: array
-          items:
-            $ref: "#/components/schemas/CopyFactoryRelationship"
-      required: [mt5Account, copyFactoryRelationships]
-
-    Mt5AccountsListResponse:
-      type: object
-      properties:
-        accounts:
-          type: array
-          items:
-            type: object
-      required: [accounts]

@@ -1,8 +1,22 @@
 import { Router, type IRouter } from "express";
-import { db, subscriptionsTable, paymentsTable, adminSettingsTable } from "@workspace/db";
+import { db, subscriptionsTable, paymentsTable, adminSettingsTable, plansTable } from "@workspace/db";
 import { eq, count } from "drizzle-orm";
 
 const router: IRouter = Router();
+
+/**
+ * GET /public/plans
+ * Returns active subscription plans for the landing/subscribe page.
+ */
+router.get("/plans", async (_req, res) => {
+  const plans = await db
+    .select()
+    .from(plansTable)
+    .where(eq(plansTable.isActive, true))
+    .orderBy(plansTable.pricePerDay);
+
+  res.json({ plans });
+});
 
 /**
  * GET /public/stats

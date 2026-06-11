@@ -1,43 +1,65 @@
 import { Router, type IRouter } from "express";
-import { db, usersTable, auditLogsTable, paymentsTable } from "@workspace/db";
-import { desc, eq, count, and } from "drizzle-orm";
+import {
+  db,
+  usersTable,
+  auditLogsTable,
+  paymentsTable,
+  subscriptionsTable,
+} from "@workspace/db";
+import { desc, eq, count, and, sum } from "drizzle-orm";
 
 const router: IRouter = Router();
 
 router.get("/dashboard", async (_req, res) => {
-  const [totalUsers] = await db
-    .select({ count: count() })
-    .from(usersTable);
+  const [
+    [totalUsersRow],
+    [adminCountRow],
+    [activeSubsRow],
+    [revenueRow],
+    [pendingPayRow],
+    recentUsers,
+    recentActivity,
+  ] = await Promise.all([
+    db.select({ count: count() }).from(usersTable),
+    db.select({ count: count() }).from(usersTable).where(eq(usersTable.role, "admin")),
+    db
+      .select({ count: count() })
+      .from(subscriptionsTable)
+      .where(and(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.isActive, true))),
+    db
+      .select({ total: sum(paymentsTable.amount) })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.status, "completed")),
+    db
+      .select({ count: count() })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.status, "pending")),
+    db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        role: usersTable.role,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        createdAt: usersTable.createdAt,
+      })
+      .from(usersTable)
+      .orderBy(desc(usersTable.createdAt))
+      .limit(10),
+    db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.createdAt)).limit(20),
+  ]);
 
-  const [adminCount] = await db
-    .select({ count: count() })
-    .from(usersTable)
-    .where(eq(usersTable.role, "admin"));
-
-  const recentUsers = await db
-    .select({
-      id: usersTable.id,
-      email: usersTable.email,
-      role: usersTable.role,
-      firstName: usersTable.firstName,
-      lastName: usersTable.lastName,
-      createdAt: usersTable.createdAt,
-    })
-    .from(usersTable)
-    .orderBy(desc(usersTable.createdAt))
-    .limit(10);
-
-  const recentActivity = await db
-    .select()
-    .from(auditLogsTable)
-    .orderBy(desc(auditLogsTable.createdAt))
-    .limit(20);
+  const totalUsers = Number(totalUsersRow?.count ?? 0);
+  const adminUsers = Number(adminCountRow?.count ?? 0);
 
   res.json({
     stats: {
-      totalUsers: Number(totalUsers?.count ?? 0),
-      adminUsers: Number(adminCount?.count ?? 0),
-      subscriberUsers: Number(totalUsers?.count ?? 0) - Number(adminCount?.count ?? 0),
+      totalUsers,
+      adminUsers,
+      subscriberUsers: totalUsers - adminUsers,
+      activeSubscriptions: Number(activeSubsRow?.count ?? 0),
+      totalRevenue: Number(revenueRow?.total ?? 0),
+      pendingPayments: Number(pendingPayRow?.count ?? 0),
     },
     recentUsers,
     recentActivity,

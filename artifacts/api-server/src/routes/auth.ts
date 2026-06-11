@@ -194,6 +194,52 @@ router.get("/auth/me", authenticate, async (req: AuthRequest, res) => {
   res.json({ user });
 });
 
+router.patch(
+  "/auth/me/update",
+  authenticate,
+  async (req: AuthRequest, res) => {
+    const UpdateProfileSchema = z.object({
+      firstName: z.string().min(1).optional(),
+      lastName: z.string().min(1).optional(),
+      phone: z.string().optional(),
+    });
+
+    const parsed = UpdateProfileSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(422).json({ error: "Validation failed" });
+      return;
+    }
+
+    const { firstName, lastName, phone } = parsed.data;
+
+    await db
+      .update(usersTable)
+      .set({
+        ...(firstName !== undefined && { firstName }),
+        ...(lastName !== undefined && { lastName }),
+        ...(phone !== undefined && { phone }),
+        updatedAt: new Date(),
+      })
+      .where(eq(usersTable.id, req.user!.userId));
+
+    const [user] = await db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        role: usersTable.role,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        phone: usersTable.phone,
+        createdAt: usersTable.createdAt,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.user!.userId))
+      .limit(1);
+
+    res.json({ user });
+  },
+);
+
 router.post(
   "/auth/change-password",
   authenticate,
@@ -230,7 +276,7 @@ router.post(
       .set({ passwordHash: newHash, mustChangePassword: false, updatedAt: new Date() })
       .where(eq(usersTable.id, req.user!.userId));
 
-    await logAudit("user_login", req, { userId: req.user!.userId, note: "password changed" });
+    await logAudit("user_login", req, { userId: req.user!.userId, metadata: { action: "password_changed" } });
 
     res.json({ message: "Password updated successfully" });
   },

@@ -27,6 +27,98 @@ const CheckStatusSchema = z.object({
   checkoutRequestId: z.string().min(1),
 });
 
+// ── POST /payments/initiate ───────────────────────────────────────────────────
+/**
+ * Initiate M-Pesa STK push. Maps to POST /payments/initiate in OpenAPI spec.
+ */
+router.post(
+  "/initiate",
+  authenticate,
+  validateBody(InitiatePaymentSchema),
+  async (req: AuthRequest, res) => {
+    const body = req.body as z.infer<typeof InitiatePaymentSchema>;
+
+    try {
+      const result = await paymentService.initiatePayment({
+        userId: req.user!.userId,
+        planId: body.planId ?? "",
+        numberOfDays: body.numberOfDays,
+        phone: body.phone ?? "",
+      });
+
+      if (!result.idempotent) {
+        await logAudit("payment_initiated", req, {
+          userId: req.user!.userId,
+          targetId: result.paymentId,
+          targetType: "payment",
+          metadata: {
+            subscriptionId: result.subscriptionId,
+            amount: result.amount,
+            checkoutRequestId: result.checkoutRequestId,
+          },
+        });
+      }
+
+      res.status(result.idempotent ? 200 : 201).json({
+        message: result.customerMessage,
+        paymentId: result.paymentId,
+        checkoutRequestId: result.checkoutRequestId,
+        merchantRequestId: result.checkoutRequestId,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Payment initiation failed";
+      logger.error({ err, userId: req.user!.userId }, "[Route] Payment initiation error");
+      res.status(400).json({ error: message });
+    }
+  },
+);
+
+// ── GET /payments/status/:checkoutRequestId ───────────────────────────────────
+/**
+ * Poll payment status by checkout request ID. Maps to GET /payments/status/:id in OpenAPI spec.
+ */
+router.get(
+  "/status/:checkoutRequestId",
+  authenticate,
+  async (req: AuthRequest, res) => {
+    const { checkoutRequestId } = req.params;
+
+    try {
+      const status = await paymentService.checkPaymentStatus(
+        checkoutRequestId as string,
+        req.user!.userId,
+      );
+
+      if (!status.paymentId) {
+        res.status(404).json({ error: "Payment not found" });
+        return;
+      }
+
+      res.json(status);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Status check failed";
+      logger.error({ err, checkoutRequestId }, "[Route] Payment status check error");
+      const is404 = err instanceof Error && err.message === "Payment not found";
+      res.status(is404 ? 404 : 502).json({ error: message });
+    }
+  },
+);
+
+// ── GET /payments/history ─────────────────────────────────────────────────────
+/**
+ * Payment history for the current user. Maps to GET /payments/history in OpenAPI spec.
+ */
+router.get("/history", authenticate, async (req: AuthRequest, res) => {
+  const payments = await db
+    .select()
+    .from(paymentsTable)
+    .where(eq(paymentsTable.userId, req.user!.userId))
+    .orderBy(desc(paymentsTable.createdAt))
+    .limit(50);
+
+  res.json({ payments });
+});
+
 // ── GET /payments/plans ───────────────────────────────────────────────────────
 router.get("/plans", async (_req, res) => {
   const plans = await db
@@ -152,7 +244,7 @@ router.get("/payments", authenticate, async (req: AuthRequest, res) => {
 router.get("/payments/:id", authenticate, async (req: AuthRequest, res) => {
   const { id } = req.params;
 
-  const payment = await paymentService.getPaymentById(id, req.user!.userId);
+  const payment = await paymentService.getPaymentById(String(id), req.user!.userId);
 
   if (!payment) {
     res.status(404).json({ error: "Payment not found" });

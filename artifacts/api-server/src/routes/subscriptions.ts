@@ -112,6 +112,60 @@ router.post("/validate", authenticate, validateBody(ValidateSchema), async (req:
 });
 
 /**
+ * Authenticated: current user subscription status (active + plan + daysRemaining).
+ * Maps to GET /subscriptions/my in OpenAPI spec.
+ */
+router.get("/my", authenticate, async (req: AuthRequest, res) => {
+  const [row] = await db
+    .select({
+      subscription: subscriptionsTable,
+      plan: plansTable,
+    })
+    .from(subscriptionsTable)
+    .leftJoin(plansTable, eq(plansTable.id, subscriptionsTable.planId))
+    .where(
+      and(
+        eq(subscriptionsTable.userId, req.user!.userId),
+        eq(subscriptionsTable.isActive, true),
+      ),
+    )
+    .orderBy(desc(subscriptionsTable.endDate))
+    .limit(1);
+
+  if (!row?.subscription) {
+    res.json({ isActive: false, subscription: null, plan: null, daysRemaining: null });
+    return;
+  }
+
+  let daysRemaining: number | null = null;
+  if (row.subscription.endDate) {
+    const diffMs = new Date(row.subscription.endDate).getTime() - Date.now();
+    daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+  }
+
+  res.json({
+    subscription: row.subscription,
+    plan: row.plan,
+    daysRemaining,
+    isActive: true,
+  });
+});
+
+/**
+ * Authenticated: subscription history for the current user.
+ * Maps to GET /subscriptions/history in OpenAPI spec.
+ */
+router.get("/history", authenticate, async (req: AuthRequest, res) => {
+  const subscriptions = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, req.user!.userId))
+    .orderBy(desc(subscriptionsTable.createdAt));
+
+  res.json({ subscriptions });
+});
+
+/**
  * Authenticated: all subscriptions for the current user.
  */
 router.get("/", authenticate, async (req: AuthRequest, res) => {
@@ -153,7 +207,7 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
     .leftJoin(plansTable, eq(plansTable.id, subscriptionsTable.planId))
     .where(
       and(
-        eq(subscriptionsTable.id, req.params.id),
+        eq(subscriptionsTable.id, String(req.params["id"])),
         eq(subscriptionsTable.userId, req.user!.userId),
       ),
     )
@@ -215,13 +269,13 @@ router.post("/renew", authenticate, validateBody(RenewSchema), async (req: AuthR
 router.post("/:id/cancel", authenticate, async (req: AuthRequest, res) => {
   try {
     await subscriptionService.cancelSubscription({
-      subscriptionId: req.params.id,
+      subscriptionId: String(req.params["id"]),
       userId: req.user!.userId,
     });
 
     await logAudit("subscription_cancelled", req, {
       userId: req.user!.userId,
-      targetId: req.params.id,
+      targetId: String(req.params["id"]),
       targetType: "subscription",
     });
 

@@ -33,8 +33,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "redis-server --daemonize yes --port 6379 --logfile /tmp/redis.log && cd artifacts/api-server && PORT=3000 pnpm run dev"
-waitForPort = 3000
+args = "redis-server --daemonize yes --port 6379 --logfile /tmp/redis.log 2>/dev/null; echo 'Redis started (API managed by artifacts/api-server workflow)'"
 
 [[workflows.workflow]]
 name = "Start Frontend"
@@ -75,6 +74,10 @@ externalPort = 80
 [[ports]]
 localPort = 8081
 externalPort = 8081
+
+[[ports]]
+localPort = 25376
+externalPort = 3001
 
 [nix]
 channel = "stable-25_05"

@@ -138,7 +138,7 @@ router.delete("/:id", authenticate, requireRole("admin"), async (req, res) => {
   const [existing] = await db
     .select()
     .from(newsTable)
-    .where(eq(newsTable.id, req.params.id))
+    .where(eq(newsTable.id, String(req.params["id"])))
     .limit(1);
 
   if (!existing) {
@@ -146,7 +146,7 @@ router.delete("/:id", authenticate, requireRole("admin"), async (req, res) => {
     return;
   }
 
-  await db.delete(newsTable).where(eq(newsTable.id, req.params.id));
+  await db.delete(newsTable).where(eq(newsTable.id, String(req.params["id"])));
   res.json({ message: "News item deleted" });
 });
 

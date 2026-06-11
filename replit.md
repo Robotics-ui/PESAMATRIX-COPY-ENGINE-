@@ -4,8 +4,9 @@ MT5 copy-trading platform — subscribers connect their MetaTrader 5 accounts an
 
 ## Run & Operate
 
-- **Start API** workflow — Express API on port 3000 (also starts Redis)
-- **Start Frontend** workflow — Vite dev server on port 5000 (proxies `/api` → `:3000`)
+- **artifacts/api-server: API Server** workflow — Express API on port 8080 (also starts Redis via dev script)
+- **artifacts/pesamatrix: web** workflow — Vite dev server (frontend, proxied at `/`)
+- **Start Frontend** workflow — mockup-sandbox canvas preview server (port 5000, separate from main app)
 - `pnpm install` — install all workspace dependencies
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
@@ -52,7 +53,8 @@ MT5 copy-trading platform — subscribers connect their MetaTrader 5 accounts an
 ## Gotchas
 
 - Run `pnpm --filter @workspace/db run push` after any schema change before testing
-- The API `dev` script also starts Redis; if Redis is already running the `2>/dev/null` swallows the error safely
+- The API runs on **port 8080** (artifact.toml `localPort = 8080`); the proxy routes `/api` → 8080. The dev script also starts Redis; if Redis is already running the `2>/dev/null` swallows the error safely
+- After any code change to the API, restart the **artifacts/api-server: API Server** workflow to rebuild+reload (not "Start API")
 - `JWT_SECRET` and `JWT_REFRESH_SECRET` must be set as Replit secrets (not plain env vars) — app throws on startup if missing
 - `req.params.id` is typed as `string | string[]` — always cast with `String(req.params["id"])` before passing to Drizzle
 - Only import from `"zod"` (not `"zod/v4"`) in api-server routes — catalog pin is zod v3
