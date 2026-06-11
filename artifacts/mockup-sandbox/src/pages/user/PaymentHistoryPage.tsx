@@ -7,13 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function PaymentBadge({ status }: { status: Payment["status"] }) {
-  const map = {
+  const map: Record<string, { label: string; cls: string; icon: typeof CheckCircle2 }> = {
     completed: { label: "Completed", cls: "bg-primary/20 text-primary border-primary/30", icon: CheckCircle2 },
     pending: { label: "Pending", cls: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30", icon: Clock },
     failed: { label: "Failed", cls: "bg-destructive/20 text-destructive border-destructive/30", icon: XCircle },
     refunded: { label: "Refunded", cls: "bg-blue-500/20 text-blue-400 border-blue-500/30", icon: RefreshCw },
+    cancelled: { label: "Cancelled", cls: "bg-muted text-muted-foreground border-border", icon: XCircle },
+    processing: { label: "Processing", cls: "bg-blue-500/20 text-blue-400 border-blue-500/30", icon: RefreshCw },
   };
-  const v = map[status] ?? map.pending;
+  const v = map[status] ?? map["pending"]!;
   const Icon = v.icon;
   return (
     <Badge variant="outline" className={v.cls}>
