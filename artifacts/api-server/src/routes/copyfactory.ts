@@ -246,11 +246,11 @@ router.post("/copyfactory/subscriptions/process-expired", async (req: AuthReques
   try {
     const result = await subscriptionScheduler.runNow();
 
-    await logAudit("subscription_expiry_batch_run", req, {
+    await logAudit("admin_settings_updated", req, {
       userId: req.user!.userId,
       targetId: req.user!.userId,
       targetType: "system",
-      metadata: result,
+      metadata: { action: "subscription_expiry_batch", ...result },
     });
 
     res.json({ message: "Expiry processing complete", ...result });

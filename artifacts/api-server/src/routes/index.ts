@@ -5,6 +5,7 @@ import adminRouter from "./admin.js";
 import masterRouter from "./master.js";
 import mt5Router from "./mt5.js";
 import copyFactoryRouter from "./copyfactory.js";
+import paymentsRouter from "./payments.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
@@ -16,5 +17,6 @@ router.use("/admin", authenticate, requireRole("admin"), adminRouter);
 router.use("/admin", authenticate, requireRole("admin"), masterRouter);
 router.use("/admin", authenticate, requireRole("admin"), copyFactoryRouter);
 router.use("/mt5", authenticate, mt5Router);
+router.use("/payments", paymentsRouter);
 
 export default router;
