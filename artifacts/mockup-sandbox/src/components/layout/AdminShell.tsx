@@ -5,12 +5,16 @@ import {
   Users,
   CreditCard,
   Settings,
-  ScrollText,
   TrendingUp,
   Menu,
   LogOut,
   ChevronRight,
   ShieldCheck,
+  Film,
+  BookOpen,
+  Newspaper,
+  DollarSign,
+  MonitorCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -20,10 +24,14 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 
 const navItems = [
-  { href: "/admin", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/admin", icon: LayoutDashboard, label: "Dashboard", exact: true },
   { href: "/admin/users", icon: Users, label: "Users" },
   { href: "/admin/subscriptions", icon: CreditCard, label: "Subscriptions" },
-  { href: "/admin/audit-logs", icon: ScrollText, label: "Audit Logs" },
+  { href: "/admin/payments", icon: DollarSign, label: "Payments" },
+  { href: "/admin/mt5-accounts", icon: MonitorCheck, label: "MT5 Accounts" },
+  { href: "/admin/media", icon: Film, label: "Media Management" },
+  { href: "/admin/resources", icon: BookOpen, label: "Resources" },
+  { href: "/admin/news", icon: Newspaper, label: "News" },
   { href: "/admin/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -41,7 +49,9 @@ function NavLink({
   onClick?: () => void;
 }) {
   const [location] = useLocation();
-  const active = exact ? location === href : location.startsWith(href) && (href !== "/admin" || location === "/admin");
+  const active = exact
+    ? location === href
+    : location.startsWith(href) && (href !== "/admin" || location === "/admin");
 
   return (
     <Link href={href} onClick={onClick}>
@@ -66,7 +76,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const initials = user
-    ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
+    ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() || "A"
     : "A";
 
   const sidebarContent = (

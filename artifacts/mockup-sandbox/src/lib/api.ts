@@ -9,8 +9,11 @@ export type UserRole = "admin" | "subscriber";
 export type DeploymentStatus = "pending" | "deploying" | "deployed" | "failed" | "undeployed";
 export type SyncStatus = "connected" | "connecting" | "synchronizing" | "synchronized" | "disconnected" | "error";
 export type SubscriptionStatus = "pending" | "active" | "expired" | "cancelled";
-export type PaymentStatus = "pending" | "completed" | "failed" | "refunded";
+export type PaymentStatus = "pending" | "completed" | "failed" | "refunded" | "processing" | "cancelled";
 export type CfRelationshipStatus = "pending" | "active" | "stopped" | "error";
+export type MediaType = "image" | "video" | "youtube" | "external";
+export type ResourceType = "pdf" | "document" | "guide" | "ebook" | "link";
+export type NewsCategory = "article" | "market_update" | "economic_calendar";
 
 export interface User {
   id: string;
@@ -60,6 +63,7 @@ export interface Subscription {
 export interface ActiveSubscription extends Subscription {
   copyFactoryStatus?: CfRelationshipStatus | null;
   daysRemaining?: number | null;
+  tradingDaysRemaining?: number | null;
 }
 
 export interface Payment {
@@ -86,6 +90,9 @@ export interface SubscriptionPreview {
   days: number;
   pricePerDay: string;
   totalAmount: string;
+  endDate?: string;
+  startDate?: string;
+  tradingDaysDescription?: string;
 }
 
 export interface AdminDashboard {
@@ -157,6 +164,44 @@ export interface MasterAccount {
   metaApiAccountId: string | null;
 }
 
+export interface MediaItem {
+  id: string;
+  title: string;
+  description: string | null;
+  type: MediaType;
+  url: string;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResourceItem {
+  id: string;
+  title: string;
+  description: string | null;
+  type: ResourceType;
+  url: string;
+  category: string;
+  isActive: boolean;
+  downloadCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  content: string;
+  excerpt: string | null;
+  imageUrl: string | null;
+  category: NewsCategory;
+  isPublished: boolean;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const r = <T>(url: string, opts?: RequestInit): Promise<T> =>
   customFetch<T>(url, opts);
 
@@ -220,7 +265,7 @@ export const api = {
       r<SubscriptionSettings>("/api/subscriptions/settings"),
     preview: (days: number) =>
       r<SubscriptionPreview>(`/api/subscriptions/preview?days=${days}`),
-    list: () => r<Subscription[]>("/api/subscriptions/"),
+    list: () => r<{ subscriptions: Subscription[] }>("/api/subscriptions/"),
     active: () => r<ActiveSubscription | null>("/api/subscriptions/active"),
     get: (id: string) => r<Subscription>(`/api/subscriptions/${id}`),
     cancel: (id: string) =>
@@ -247,6 +292,89 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  media: {
+    list: () => r<{ media: MediaItem[] }>("/api/media"),
+    get: (id: string) => r<{ media: MediaItem }>(`/api/media/${id}`),
+    create: (body: {
+      title: string;
+      description?: string;
+      type: MediaType;
+      url: string;
+      thumbnailUrl?: string;
+    }) =>
+      r<{ media: MediaItem }>("/api/media", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: Partial<{ title: string; description: string; type: MediaType; url: string; thumbnailUrl: string; isActive: boolean }>) =>
+      r<{ media: MediaItem }>(`/api/media/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      r<{ message: string }>(`/api/media/${id}`, { method: "DELETE" }),
+  },
+
+  resources: {
+    list: (params?: { category?: string; search?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.category) qs.set("category", params.category);
+      if (params?.search) qs.set("search", params.search);
+      return r<{ resources: ResourceItem[] }>(`/api/resources?${qs}`);
+    },
+    adminList: () => r<{ resources: ResourceItem[] }>("/api/resources/admin/all"),
+    download: (id: string) =>
+      r<{ url: string }>(`/api/resources/${id}/download`, { method: "POST" }),
+    create: (body: {
+      title: string;
+      description?: string;
+      type: ResourceType;
+      url: string;
+      category?: string;
+    }) =>
+      r<{ resource: ResourceItem }>("/api/resources", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: Partial<{ title: string; description: string; type: ResourceType; url: string; category: string; isActive: boolean }>) =>
+      r<{ resource: ResourceItem }>(`/api/resources/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      r<{ message: string }>(`/api/resources/${id}`, { method: "DELETE" }),
+  },
+
+  news: {
+    list: (params?: { category?: string; search?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.category) qs.set("category", params.category);
+      if (params?.search) qs.set("search", params.search);
+      return r<{ news: NewsItem[] }>(`/api/news?${qs}`);
+    },
+    adminList: () => r<{ news: NewsItem[] }>("/api/news/admin/all"),
+    get: (id: string) => r<{ news: NewsItem }>(`/api/news/${id}`),
+    create: (body: {
+      title: string;
+      content: string;
+      excerpt?: string;
+      imageUrl?: string;
+      category: NewsCategory;
+      isPublished?: boolean;
+    }) =>
+      r<{ news: NewsItem }>("/api/news", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: Partial<{ title: string; content: string; excerpt: string; imageUrl: string; category: NewsCategory; isPublished: boolean }>) =>
+      r<{ news: NewsItem }>(`/api/news/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) =>
+      r<{ message: string }>(`/api/news/${id}`, { method: "DELETE" }),
   },
 
   admin: {
@@ -314,5 +442,11 @@ export const api = {
       ),
     queueStats: () => r<QueueStats>("/api/admin/queue/stats"),
     queueHealth: () => r<QueueHealth>("/api/admin/queue/health"),
+    payments: (params?: { page?: number; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      return r<{ payments: Payment[]; total: number }>(`/api/admin/payments?${qs}`);
+    },
   },
 };

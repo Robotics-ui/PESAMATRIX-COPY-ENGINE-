@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, usersTable, auditLogsTable } from "@workspace/db";
+import { db, usersTable, auditLogsTable, paymentsTable } from "@workspace/db";
 import { desc, eq, count } from "drizzle-orm";
 
 const router: IRouter = Router();
@@ -101,6 +101,24 @@ router.get("/audit-logs", async (_req, res) => {
     .limit(100);
 
   res.json({ logs });
+});
+
+router.get("/payments", async (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "20"), 10)));
+  const offset = (page - 1) * limit;
+
+  const [payments, [countRow]] = await Promise.all([
+    db
+      .select()
+      .from(paymentsTable)
+      .orderBy(desc(paymentsTable.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ count: count() }).from(paymentsTable),
+  ]);
+
+  res.json({ payments, total: Number(countRow?.count ?? 0) });
 });
 
 export default router;

@@ -4,12 +4,14 @@ import {
   LayoutDashboard,
   MonitorCheck,
   CreditCard,
-  History,
-  LogOut,
   TrendingUp,
   Menu,
-  X,
+  LogOut,
   ChevronRight,
+  Image,
+  BookOpen,
+  Newspaper,
+  Phone,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -19,9 +21,12 @@ import { Separator } from "@/components/ui/separator";
 
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/gallery", icon: Image, label: "Gallery" },
+  { href: "/resources", icon: BookOpen, label: "Resources" },
+  { href: "/news", icon: Newspaper, label: "News" },
+  { href: "/subscribe", icon: CreditCard, label: "Subscription" },
   { href: "/connect-mt5", icon: MonitorCheck, label: "MT5 Account" },
-  { href: "/subscribe", icon: CreditCard, label: "Subscribe" },
-  { href: "/payments", icon: History, label: "Payment History" },
+  { href: "/contact", icon: Phone, label: "Contact" },
 ];
 
 function NavLink({
@@ -61,7 +66,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const initials = user
-    ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
+    ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() || "U"
     : "U";
 
   const sidebarContent = (

@@ -11,6 +11,7 @@ import {
 import { mpesaService } from "./mpesa.service.js";
 import { relationshipService } from "./relationship.service.js";
 import { logger } from "../lib/logger.js";
+import { addTradingDays, countTradingDaysRemaining, tradingDaysToWeeks } from "../lib/trading-days.js";
 
 const MASTER_SETTINGS_KEY = "default";
 
@@ -25,10 +26,13 @@ export interface PricingPreview {
   planName: string;
   pricePerDay: number;
   days: number;
+  tradingDays: number;
+  tradingDaysDescription: string;
   totalAmount: number;
   startDate: Date;
   endDate: Date;
   daysUntilExpiry: number;
+  tradingDaysUntilExpiry: number;
   isRenewal: boolean;
   existingEndDate: Date | null;
 }
@@ -42,6 +46,7 @@ export interface ActiveSubscriptionInfo {
   startDate: Date | null;
   endDate: Date | null;
   daysRemaining: number;
+  tradingDaysRemaining: number;
   daysTotal: number;
   amountPaid: string;
   copyFactorySubscriberId: string | null;
@@ -58,9 +63,6 @@ export interface SubscriptionValidationResult {
 }
 
 export class SubscriptionService {
-  /**
-   * Fetch the subscription-related admin settings.
-   */
   async getSettings(): Promise<SubscriptionSettings> {
     const [settings] = await db
       .select({
@@ -79,9 +81,6 @@ export class SubscriptionService {
     };
   }
 
-  /**
-   * Update admin subscription settings (fee/day, min/max days).
-   */
   async updateSettings(
     params: Partial<SubscriptionSettings> & { updatedBy: string },
   ): Promise<SubscriptionSettings> {
@@ -107,10 +106,6 @@ export class SubscriptionService {
     return this.getSettings();
   }
 
-  /**
-   * Validate a subscription request against plan limits and admin constraints.
-   * Returns detailed errors so the client can render them in the slider UI.
-   */
   async validateRequest(planId: string, days: number): Promise<SubscriptionValidationResult> {
     const errors: string[] = [];
 
@@ -125,19 +120,14 @@ export class SubscriptionService {
     }
 
     const adminSettings = await this.getSettings();
-
     const effectiveMinDays = Math.max(plan.minimumDays, adminSettings.minimumSubscriptionDays);
     const effectiveMaxDays = Math.min(plan.maximumDays, adminSettings.maximumSubscriptionDays);
 
     if (!Number.isInteger(days) || days < 1) {
       errors.push("Days must be a positive integer");
     } else {
-      if (days < effectiveMinDays) {
-        errors.push(`Minimum subscription is ${effectiveMinDays} days`);
-      }
-      if (days > effectiveMaxDays) {
-        errors.push(`Maximum subscription is ${effectiveMaxDays} days`);
-      }
+      if (days < effectiveMinDays) errors.push(`Minimum subscription is ${effectiveMinDays} trading days`);
+      if (days > effectiveMaxDays) errors.push(`Maximum subscription is ${effectiveMaxDays} trading days`);
     }
 
     return {
@@ -156,9 +146,8 @@ export class SubscriptionService {
   }
 
   /**
-   * Calculate a pricing preview for the slider UI — no DB writes.
-   * Takes into account whether the user already has an active subscription
-   * (renewal extends from existing endDate rather than starting fresh).
+   * Calculate pricing preview using trading days (Mon–Fri only).
+   * endDate is calculated by adding N trading days to startDate, skipping weekends.
    */
   async getPricingPreview(params: {
     userId: string;
@@ -168,9 +157,7 @@ export class SubscriptionService {
     const { userId, planId, days } = params;
 
     const validation = await this.validateRequest(planId, days);
-    if (!validation.valid) {
-      throw new Error(validation.errors.join("; "));
-    }
+    if (!validation.valid) throw new Error(validation.errors.join("; "));
 
     const plan = validation.plan!;
     const totalAmount = plan.pricePerDay * days;
@@ -192,26 +179,29 @@ export class SubscriptionService {
     const now = new Date();
     const isRenewal = !!existing?.endDate && existing.endDate > now;
     const startDate = isRenewal ? existing.endDate! : now;
-    const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+    // Use trading days for end date calculation
+    const endDate = addTradingDays(startDate, days);
     const daysUntilExpiry = Math.ceil((endDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+    const tradingDaysUntilExpiry = countTradingDaysRemaining(endDate);
 
     return {
       planId,
       planName: plan.name,
       pricePerDay: plan.pricePerDay,
       days,
+      tradingDays: days,
+      tradingDaysDescription: tradingDaysToWeeks(days),
       totalAmount,
       startDate,
       endDate,
       daysUntilExpiry,
+      tradingDaysUntilExpiry,
       isRenewal,
       existingEndDate: existing?.endDate ?? null,
     };
   }
 
-  /**
-   * Get the user's currently active subscription with enriched info.
-   */
   async getActiveSubscription(userId: string): Promise<ActiveSubscriptionInfo | null> {
     const [row] = await db
       .select({
@@ -238,6 +228,7 @@ export class SubscriptionService {
     const daysRemaining = endDate
       ? Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
       : 0;
+    const tradingDaysRemaining = endDate ? countTradingDaysRemaining(endDate) : 0;
 
     const [cfRelationship] = await db
       .select({ id: copyFactoryRelationshipsTable.id })
@@ -259,6 +250,7 @@ export class SubscriptionService {
       startDate: row.sub.startDate,
       endDate,
       daysRemaining,
+      tradingDaysRemaining,
       daysTotal: row.sub.numberOfDays,
       amountPaid: row.sub.amountPaid,
       copyFactorySubscriberId: row.sub.copyFactorySubscriberId,
@@ -267,13 +259,6 @@ export class SubscriptionService {
     };
   }
 
-  /**
-   * Initiate a renewal payment for an existing subscription.
-   *
-   * Creates a new pending subscription record with startDate set to the
-   * existing subscription's endDate (so there is no gap in coverage).
-   * The M-Pesa callback activates the new record when payment clears.
-   */
   async initiateRenewal(params: {
     userId: string;
     planId: string;
@@ -283,9 +268,7 @@ export class SubscriptionService {
     const { userId, planId, days, phone } = params;
 
     const validation = await this.validateRequest(planId, days);
-    if (!validation.valid) {
-      throw new Error(validation.errors.join("; "));
-    }
+    if (!validation.valid) throw new Error(validation.errors.join("; "));
 
     const plan = validation.plan!;
     const totalAmount = plan.pricePerDay * days;
@@ -306,7 +289,9 @@ export class SubscriptionService {
 
     const now = new Date();
     const renewalStartDate = existingActive?.endDate ?? now;
-    const renewalEndDate = new Date(renewalStartDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+    // Trading days — end date skips weekends
+    const renewalEndDate = addTradingDays(renewalStartDate, days);
 
     const [newSubscription] = await db
       .insert(subscriptionsTable)
@@ -356,8 +341,8 @@ export class SubscriptionService {
         .where(eq(paymentsTable.id, payment.id));
 
       logger.info(
-        { userId, subscriptionId: newSubscription.id, renewalStartDate, renewalEndDate },
-        "Renewal STK push initiated",
+        { userId, subscriptionId: newSubscription.id, renewalStartDate, renewalEndDate, tradingDays: days },
+        "Renewal STK push initiated (trading days)",
       );
 
       return {
@@ -369,22 +354,12 @@ export class SubscriptionService {
         renewalStartDate,
       };
     } catch (err) {
-      await db
-        .update(paymentsTable)
-        .set({ status: "failed", updatedAt: new Date() })
-        .where(eq(paymentsTable.id, payment.id));
-      await db
-        .update(subscriptionsTable)
-        .set({ status: "cancelled", updatedAt: new Date() })
-        .where(eq(subscriptionsTable.id, newSubscription.id));
+      await db.update(paymentsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(paymentsTable.id, payment.id));
+      await db.update(subscriptionsTable).set({ status: "cancelled", updatedAt: new Date() }).where(eq(subscriptionsTable.id, newSubscription.id));
       throw err;
     }
   }
 
-  /**
-   * Activate a subscription immediately (e.g. after payment confirmed).
-   * Sets proper start/end dates and triggers CopyFactory attach.
-   */
   async activateSubscription(subscriptionId: string): Promise<void> {
     const [sub] = await db
       .select()
@@ -397,10 +372,12 @@ export class SubscriptionService {
 
     const now = new Date();
     const startDate = sub.startDate && sub.startDate > now ? sub.startDate : now;
+
+    // Recalculate end date using trading days from the actual start date
     const endDate =
       sub.endDate && sub.endDate > startDate
         ? sub.endDate
-        : new Date(startDate.getTime() + sub.numberOfDays * 24 * 60 * 60 * 1000);
+        : addTradingDays(startDate, sub.numberOfDays);
 
     await db
       .update(subscriptionsTable)
@@ -414,12 +391,9 @@ export class SubscriptionService {
       logger.error({ err, subscriptionId }, "CopyFactory attach failed during activation");
     });
 
-    logger.info({ subscriptionId, startDate, endDate }, "Subscription activated");
+    logger.info({ subscriptionId, startDate, endDate, tradingDays: sub.numberOfDays }, "Subscription activated (trading days)");
   }
 
-  /**
-   * Cancel a subscription immediately — detaches CopyFactory and marks cancelled.
-   */
   async cancelSubscription(params: {
     subscriptionId: string;
     userId: string;
@@ -433,10 +407,7 @@ export class SubscriptionService {
       .where(
         adminOverride
           ? eq(subscriptionsTable.id, subscriptionId)
-          : and(
-              eq(subscriptionsTable.id, subscriptionId),
-              eq(subscriptionsTable.userId, userId),
-            ),
+          : and(eq(subscriptionsTable.id, subscriptionId), eq(subscriptionsTable.userId, userId)),
       )
       .limit(1);
 
@@ -459,10 +430,6 @@ export class SubscriptionService {
     logger.info({ subscriptionId, userId: sub.userId }, "Subscription cancelled");
   }
 
-  /**
-   * Force-expire a subscription (admin action).
-   * Equivalent to the automatic expiry path but triggered manually.
-   */
   async expireSubscription(subscriptionId: string): Promise<void> {
     const [sub] = await db
       .select()
@@ -489,9 +456,6 @@ export class SubscriptionService {
     logger.info({ subscriptionId, userId: sub.userId }, "Subscription manually expired");
   }
 
-  /**
-   * Admin overview: subscriptions list with user info, paged.
-   */
   async listAllSubscriptions(params: {
     status?: string;
     limit?: number;
@@ -526,18 +490,12 @@ export class SubscriptionService {
             .orderBy(desc(subscriptionsTable.createdAt))
             .limit(limit)
             .offset(offset),
-      db
-        .select({ count: count() })
-        .from(subscriptionsTable)
-        .then((r) => r),
+      db.select({ count: count() }).from(subscriptionsTable).then((r) => r),
     ]);
 
     return { subscriptions: rows, total: Number(countRow?.count ?? 0) };
   }
 
-  /**
-   * Admin stats: counts by status and total revenue.
-   */
   async getStats(): Promise<{
     total: number;
     active: number;

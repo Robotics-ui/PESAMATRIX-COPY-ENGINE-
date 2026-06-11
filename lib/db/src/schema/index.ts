@@ -8,3 +8,6 @@ export * from "./copyFactoryRelationships";
 export * from "./tradeSyncs";
 export * from "./adminSettings";
 export * from "./auditLogs";
+export * from "./media";
+export * from "./resources";
+export * from "./news";

@@ -4,3 +4,4 @@
 - [Zod Import in API Server](zod-import.md) — Use import from "zod" (not "zod/v4") in api-server routes; use z.string().email() not z.email() (catalog is zod v3).
 - [Audit Action Enum](audit-action-enum.md) — Only use the 17 values defined in auditActionEnum; no custom strings; map batch runs to nearest existing action with metadata.
 - [M-Pesa Callback Pattern](mpesa-callback-pattern.md) — Respond 200 immediately, then process async; never await processing before responding to Safaricom.
+- [Express Params Typing](express-params-typing.md) — req.params.id typed as string | string[] in this project; always cast with String(req.params["id"]) before passing to Drizzle eq().

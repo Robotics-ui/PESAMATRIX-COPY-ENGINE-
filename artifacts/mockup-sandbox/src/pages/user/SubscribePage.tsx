@@ -13,6 +13,8 @@ import {
   RefreshCw,
   TrendingUp,
   Shield,
+  CalendarDays,
+  Info,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -23,7 +25,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const paySchema = z.object({
@@ -39,6 +40,15 @@ type PaymentState =
   | { stage: "success" }
   | { stage: "failed"; reason: string };
 
+/** Format trading days as a human label: "5 days (1 trading week)" */
+function tradingDaysLabel(days: number): string {
+  if (days % 5 === 0) {
+    const weeks = days / 5;
+    return `${days} trading day${days !== 1 ? "s" : ""} (${weeks} week${weeks !== 1 ? "s" : ""})`;
+  }
+  return `${days} trading day${days !== 1 ? "s" : ""}`;
+}
+
 export default function SubscribePage() {
   const { user } = useAuth();
 
@@ -53,8 +63,8 @@ export default function SubscribePage() {
     retry: false,
   });
 
-  const minDays = settings?.minimumSubscriptionDays ?? 7;
-  const maxDays = settings?.maximumSubscriptionDays ?? 365;
+  const minDays = settings?.minimumSubscriptionDays ?? 5;
+  const maxDays = settings?.maximumSubscriptionDays ?? 260; // ~52 trading weeks
   const feePerDay = parseFloat(settings?.subscriptionFeePerDay ?? "100");
 
   const [days, setDays] = useState(minDays);
@@ -70,18 +80,27 @@ export default function SubscribePage() {
     enabled: !!settings,
   });
 
-  const { register, handleSubmit, formState: { errors }, watch } = useForm<PayFormData>({
+  const { register, handleSubmit, formState: { errors } } = useForm<PayFormData>({
     resolver: zodResolver(paySchema),
     defaultValues: { phone: user?.phone ?? "" },
   });
 
-  const phone = watch("phone");
   const totalAmount = preview?.totalAmount
     ? parseFloat(preview.totalAmount)
     : days * feePerDay;
 
-  const endDate = new Date();
-  endDate.setDate(endDate.getDate() + days);
+  // Use the server-calculated end date (trading days aware) if available
+  const expiryDate = preview?.endDate ? new Date(preview.endDate) : (() => {
+    // Client-side fallback: rough estimate skipping weekends
+    const d = new Date();
+    let added = 0;
+    while (added < days) {
+      d.setDate(d.getDate() + 1);
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) added++;
+    }
+    return d;
+  })();
 
   const pollStatus = useCallback(
     async (paymentId: string, checkoutRequestId: string, attempt = 0) => {
@@ -159,10 +178,23 @@ export default function SubscribePage() {
           <AlertDescription className="text-sm">
             You have an active subscription expiring{" "}
             {activeSub.endDate ? formatDate(activeSub.endDate) : "soon"}.
-            Subscribing again will extend your access.
+            {activeSub.tradingDaysRemaining !== undefined && activeSub.tradingDaysRemaining !== null && (
+              <span className="ml-1 text-primary font-medium">
+                ({activeSub.tradingDaysRemaining} trading day{activeSub.tradingDaysRemaining !== 1 ? "s" : ""} left)
+              </span>
+            )}
+            {" "}Subscribing again will extend your access.
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Trading days info banner */}
+      <Alert className="border-blue-500/20 bg-blue-500/5">
+        <Info className="size-4 text-blue-400" />
+        <AlertDescription className="text-xs text-blue-300">
+          Subscriptions are counted in <strong>trading days</strong> (Monday–Friday). Weekends don't count toward your subscription.
+        </AlertDescription>
+      </Alert>
 
       {settingsLoading ? (
         <Card className="bg-card">
@@ -176,31 +208,47 @@ export default function SubscribePage() {
           {/* Duration slider */}
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
-              <CardTitle className="text-base">Subscription Duration</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <CalendarDays className="size-4 text-primary" />
+                Subscription Duration
+              </CardTitle>
               <CardDescription>
-                KES {feePerDay.toLocaleString()} per day · {minDays}–{maxDays} days
+                KES {feePerDay.toLocaleString()} per trading day · {minDays}–{maxDays} trading days
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Duration</span>
-                  <span className="text-lg font-bold text-foreground">
-                    {days} {days === 1 ? "day" : "days"}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-lg font-bold text-foreground">
+                      {tradingDaysLabel(days)}
+                    </span>
+                  </div>
                 </div>
                 <Slider
                   min={minDays}
                   max={maxDays}
-                  step={1}
+                  step={5}
                   value={[days]}
                   onValueChange={([v]) => setDays(v)}
                   className="w-full"
                 />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{minDays}d</span>
-                  <span>{Math.floor((minDays + maxDays) / 2)}d</span>
-                  <span>{maxDays}d</span>
+                {/* Quick select buttons */}
+                <div className="flex gap-2 flex-wrap">
+                  {[5, 10, 20, 60, 120].filter((d) => d >= minDays && d <= maxDays).map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setDays(d)}
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                        days === d
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                      }`}
+                    >
+                      {d === 5 ? "1 week" : d === 10 ? "2 weeks" : d === 20 ? "1 month" : d === 60 ? "3 months" : "6 months"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -210,11 +258,19 @@ export default function SubscribePage() {
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Rate</span>
-                  <span className="text-foreground">KES {feePerDay.toLocaleString()} × {days}d</span>
+                  <span className="text-foreground">
+                    KES {feePerDay.toLocaleString()} × {days} trading day{days !== 1 ? "s" : ""}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Expires</span>
-                  <span className="text-foreground">{formatDate(endDate)}</span>
+                  <span className="text-muted-foreground">Expires (approx.)</span>
+                  <span className="text-foreground">
+                    {previewLoading ? (
+                      <Loader2 className="size-3.5 animate-spin inline" />
+                    ) : (
+                      formatDate(expiryDate)
+                    )}
+                  </span>
                 </div>
                 <Separator />
                 <div className="flex justify-between">
@@ -302,7 +358,7 @@ export default function SubscribePage() {
             {[
               { icon: TrendingUp, title: "Auto Copy", desc: "Trades mirrored in real-time" },
               { icon: Shield, title: "Secure", desc: "MetaApi encrypted connection" },
-              { icon: Clock, title: "Instant Activation", desc: "Active within minutes" },
+              { icon: Clock, title: "Trading Days", desc: "Mon–Fri counting only" },
             ].map((item) => (
               <div key={item.title} className="flex items-start gap-3 p-3 rounded-lg bg-card border border-border">
                 <item.icon className="size-4 text-primary flex-shrink-0 mt-0.5" />

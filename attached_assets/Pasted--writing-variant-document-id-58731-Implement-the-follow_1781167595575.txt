@@ -1,0 +1,133 @@
+:::writing{variant="document" id="58731"} Implement the following additional features for PesaMatrix.
+TRADING DAYS SUBSCRIPTION LOGIC
+Subscription duration must be based on trading days only.
+Requirements:
+Trading days are Monday to Friday.
+Saturday and Sunday must NOT count toward subscription days.
+If a user subscribes for 20 trading days, only weekdays are counted.
+Subscription expiry date must automatically skip weekends.
+All subscription calculations must use trading days.
+Display both:
+Purchased Trading Days
+Actual Expiry Date
+Examples:
+5 trading days = 1 trading week
+20 trading days = 4 trading weeks
+Weekends do not reduce subscription balance
+CONTACT INFORMATION
+Add clickable contact links throughout the platform.
+Phone Numbers:
++254717434943 +254781585319
+Requirements:
+Clicking a phone number should initiate a phone call on supported devices.
+Display contacts in Footer, Contact Page, and User Dashboard.
+WHATSAPP FLOATING BUTTON
+Create a floating WhatsApp button visible across the platform.
+WhatsApp Number:
++254717434943
+Requirements:
+Floating on all pages.
+Mobile responsive.
+Opens WhatsApp chat directly.
+Fixed position at bottom-right corner.
+TIKTOK INTEGRATION
+TikTok Link:
+https://tiktok.com/@pesamatrixsignals⁠�
+Requirements:
+Display TikTok icon in footer.
+Display TikTok link in Contact section.
+Clicking opens TikTok profile.
+MEDIA MANAGEMENT SYSTEM
+Create a Media Management module.
+ADMIN FEATURES
+Admin must be able to:
+Upload trading videos.
+Upload trading images.
+Upload media from phone gallery.
+Upload media from desktop.
+Add YouTube links.
+Add external video links.
+Edit media.
+Delete media.
+USER FEATURES
+Users can:
+View media gallery.
+Watch uploaded videos.
+View uploaded images.
+Open external video links.
+Create:
+Media table
+Media upload APIs
+Media management dashboard
+GALLERY PAGE
+Create Gallery page.
+Display:
+Trading videos
+Trading images
+Featured content
+Latest uploads
+Support:
+Mobile devices
+Tablets
+Desktop
+TRADING RESOURCES MODULE
+Create Resources section.
+ADMIN FEATURES
+Admin can:
+Upload PDF files
+Upload learning documents
+Upload trading guides
+Upload eBooks
+Add educational links
+Categorize resources
+USER FEATURES
+Users can:
+Browse resources
+Download resources
+Open resource links
+Search resources
+Create:
+Resource table
+Resource upload APIs
+Resource management dashboard
+NEWS MANAGEMENT MODULE
+Create Trading News section.
+ADMIN FEATURES
+Admin can:
+Upload trading news articles
+Upload market updates
+Upload economic calendar updates
+Upload news images
+Edit news
+Delete news
+USER FEATURES
+Users can:
+Browse news
+Open news details
+Search news
+View latest updates
+Create:
+News table
+News APIs
+News management dashboard
+USER NAVIGATION
+Add the following menu items:
+Dashboard
+Gallery
+Resources
+News
+Subscription
+MT5 Account
+Contact
+ADMIN NAVIGATION
+Add the following menu items:
+Dashboard
+Users
+Subscriptions
+Payments
+MT5 Accounts
+Media Management
+Resources Management
+News Management
+Settings
+Ensure all modules are mobile responsive and optimized for production use. :::

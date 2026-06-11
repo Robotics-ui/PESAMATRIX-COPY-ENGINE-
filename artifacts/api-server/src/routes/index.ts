@@ -9,6 +9,9 @@ import paymentsRouter from "./payments.js";
 import subscriptionsRouter from "./subscriptions.js";
 import adminSubscriptionsRouter from "./admin-subscriptions.js";
 import queueRouter from "./queue.js";
+import mediaRouter from "./media.js";
+import resourcesRouter from "./resources.js";
+import newsRouter from "./news.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
@@ -24,5 +27,8 @@ router.use("/admin", authenticate, requireRole("admin"), queueRouter);
 router.use("/mt5", authenticate, mt5Router);
 router.use("/payments", paymentsRouter);
 router.use("/subscriptions", subscriptionsRouter);
+router.use("/media", mediaRouter);
+router.use("/resources", resourcesRouter);
+router.use("/news", newsRouter);
 
 export default router;
