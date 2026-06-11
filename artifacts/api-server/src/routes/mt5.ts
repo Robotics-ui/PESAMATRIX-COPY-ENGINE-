@@ -10,10 +10,13 @@ import {
 } from "@workspace/db";
 import { type AuthRequest } from "../middlewares/authenticate.js";
 import { validateBody } from "../middlewares/validate.js";
-import { deploymentService } from "../services/deployment.service.js";
 import { synchronizationService } from "../services/synchronization.service.js";
-import { copyFactoryService } from "../services/copyfactory.service.js";
 import { logAudit } from "../lib/audit.js";
+import { logger } from "../lib/logger.js";
+import {
+  AccountDeploymentQueue,
+  CopyFactoryQueue,
+} from "../queues/index.js";
 
 const router: IRouter = Router();
 
@@ -33,27 +36,18 @@ const RegisterCopyFactorySchema = z.object({
   multiplier: z.number().min(0.01).max(100).optional(),
 });
 
+// ── GET /mt5/accounts ──────────────────────────────────────────────────────────
 router.get("/accounts", async (req: AuthRequest, res) => {
   const accounts = await db
-    .select({
-      mt5: mt5AccountsTable,
-      metaApi: metaApiAccountsTable,
-    })
+    .select({ mt5: mt5AccountsTable, metaApi: metaApiAccountsTable })
     .from(mt5AccountsTable)
-    .leftJoin(
-      metaApiAccountsTable,
-      eq(metaApiAccountsTable.mt5AccountId, mt5AccountsTable.id),
-    )
-    .where(
-      and(
-        eq(mt5AccountsTable.userId, req.user!.userId),
-        eq(mt5AccountsTable.isMaster, false),
-      ),
-    );
+    .leftJoin(metaApiAccountsTable, eq(metaApiAccountsTable.mt5AccountId, mt5AccountsTable.id))
+    .where(and(eq(mt5AccountsTable.userId, req.user!.userId), eq(mt5AccountsTable.isMaster, false)));
 
   res.json({ accounts });
 });
 
+// ── POST /mt5/accounts ─────────────────────────────────────────────────────────
 router.post(
   "/accounts",
   validateBody(RegisterMt5Schema),
@@ -84,16 +78,12 @@ router.post(
   },
 );
 
+// ── GET /mt5/accounts/:id ──────────────────────────────────────────────────────
 router.get("/accounts/:id", async (req: AuthRequest, res) => {
   const [mt5] = await db
     .select()
     .from(mt5AccountsTable)
-    .where(
-      and(
-        eq(mt5AccountsTable.id, req.params.id),
-        eq(mt5AccountsTable.userId, req.user!.userId),
-      ),
-    )
+    .where(and(eq(mt5AccountsTable.id, req.params.id), eq(mt5AccountsTable.userId, req.user!.userId)))
     .limit(1);
 
   if (!mt5) {
@@ -121,6 +111,18 @@ router.get("/accounts/:id", async (req: AuthRequest, res) => {
   });
 });
 
+// ── POST /mt5/accounts/:id/deploy ─────────────────────────────────────────────
+/**
+ * Enqueues an AccountDeploymentQueue job and returns 202 Accepted immediately.
+ *
+ * MetaApi provisioning can take 30–120 seconds — running it inline would
+ * block the HTTP request until timeouts occur. The queue gives us:
+ *   - Retry with exponential back-off (3 attempts, 10 s base delay)
+ *   - Concurrency cap (5 parallel deploys)
+ *   - Dead-letter visibility on failure
+ *
+ * Poll GET /mt5/accounts/:id/status or GET /mt5/accounts/:id to check progress.
+ */
 router.post(
   "/accounts/:id/deploy",
   validateBody(DeployMt5Schema),
@@ -149,40 +151,51 @@ router.post(
       return;
     }
 
-    try {
-      const result = await deploymentService.deploySubscriberAccount({
-        mt5AccountDbId: mt5.id,
-        userId: req.user!.userId,
-        login: mt5.login,
-        password,
-        server: mt5.server,
-        broker: mt5.broker,
-        multiplier,
+    if (mt5.deploymentStatus === "deploying") {
+      res.status(409).json({
+        error: "Deployment already in progress",
+        hint: "Poll GET /mt5/accounts/:id/status to track progress",
       });
-
-      res.json({
-        metaApiAccountId: result.metaApiAccountId,
-        copyFactoryStrategyId: result.copyFactoryStrategyId,
-        copyFactoryRelationshipId: result.copyFactoryRelationshipId,
-        state: result.state,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Deployment failed";
-      res.status(502).json({ error: message });
+      return;
     }
+
+    await db
+      .update(mt5AccountsTable)
+      .set({ deploymentStatus: "deploying", updatedAt: new Date() })
+      .where(eq(mt5AccountsTable.id, mt5.id));
+
+    const job = await AccountDeploymentQueue.add("deploy-subscriber", {
+      type: "deploy-subscriber",
+      mt5AccountDbId: mt5.id,
+      userId: req.user!.userId,
+      login: mt5.login,
+      password,
+      server: mt5.server,
+      broker: mt5.broker,
+      region: mt5.region ?? undefined,
+      multiplier: multiplier ?? 1.0,
+    });
+
+    logger.info(
+      { jobId: job.id, mt5AccountId: mt5.id, userId: req.user!.userId, login: mt5.login },
+      "[MT5Route] Deployment job enqueued",
+    );
+
+    res.status(202).json({
+      message: "Deployment queued — processing in background",
+      jobId: job.id,
+      mt5AccountId: mt5.id,
+      hint: "Poll GET /mt5/accounts/:id/status to track progress",
+    });
   },
 );
 
+// ── GET /mt5/accounts/:id/status ──────────────────────────────────────────────
 router.get("/accounts/:id/status", async (req: AuthRequest, res) => {
   const [mt5] = await db
     .select({ id: mt5AccountsTable.id })
     .from(mt5AccountsTable)
-    .where(
-      and(
-        eq(mt5AccountsTable.id, req.params.id),
-        eq(mt5AccountsTable.userId, req.user!.userId),
-      ),
-    )
+    .where(and(eq(mt5AccountsTable.id, req.params.id), eq(mt5AccountsTable.userId, req.user!.userId)))
     .limit(1);
 
   if (!mt5) {
@@ -199,6 +212,11 @@ router.get("/accounts/:id/status", async (req: AuthRequest, res) => {
   }
 });
 
+// ── POST /mt5/accounts/:id/copyfactory ────────────────────────────────────────
+/**
+ * Enqueues a CopyFactoryQueue job to register/re-register the subscriber.
+ * Returns 202 immediately — the CopyFactory PUT may take seconds.
+ */
 router.post(
   "/accounts/:id/copyfactory",
   validateBody(RegisterCopyFactorySchema),
@@ -228,7 +246,7 @@ router.post(
     }
 
     const [settings] = await db
-      .select()
+      .select({ copyFactoryStrategyId: adminSettingsTable.copyFactoryStrategyId })
       .from(adminSettingsTable)
       .where(eq(adminSettingsTable.key, "default"))
       .limit(1);
@@ -238,82 +256,38 @@ router.post(
       return;
     }
 
-    try {
-      await copyFactoryService.addSubscriber(
-        mt5.metaApiAccountId,
-        settings.copyFactoryStrategyId,
-        multiplier ?? 1.0,
-      );
+    const job = await CopyFactoryQueue.add("register-subscriber", {
+      type: "register-subscriber",
+      userId: req.user!.userId,
+      metaApiAccountId: mt5.metaApiAccountId,
+      multiplier: multiplier ?? 1.0,
+    });
 
-      const existing = await db
-        .select({ id: copyFactoryRelationshipsTable.id })
-        .from(copyFactoryRelationshipsTable)
-        .where(
-          and(
-            eq(copyFactoryRelationshipsTable.subscriberUserId, req.user!.userId),
-            eq(copyFactoryRelationshipsTable.copyFactoryStrategyId, settings.copyFactoryStrategyId),
-          ),
-        )
-        .limit(1);
+    logger.info(
+      { jobId: job.id, userId: req.user!.userId, metaApiAccountId: mt5.metaApiAccountId },
+      "[MT5Route] CopyFactory registration job enqueued",
+    );
 
-      if (existing.length === 0) {
-        const [masterMetaApi] = settings.masterMetaApiAccountId
-          ? await db
-              .select({ id: metaApiAccountsTable.id })
-              .from(metaApiAccountsTable)
-              .where(eq(metaApiAccountsTable.metaApiId, settings.masterMetaApiAccountId))
-              .limit(1)
-          : [null];
+    await logAudit("copy_factory_subscriber_added", req, {
+      userId: req.user!.userId,
+      targetId: mt5.id,
+      targetType: "mt5_account",
+      metadata: { strategyId: settings.copyFactoryStrategyId, multiplier, jobId: job.id },
+    });
 
-        const [metaApiRecord] = await db
-          .select({ id: metaApiAccountsTable.id })
-          .from(metaApiAccountsTable)
-          .where(eq(metaApiAccountsTable.metaApiId, mt5.metaApiAccountId))
-          .limit(1);
-
-        await db.insert(copyFactoryRelationshipsTable).values({
-          subscriberUserId: req.user!.userId,
-          subscriberMetaApiAccountId: metaApiRecord.id,
-          masterMetaApiAccountId: masterMetaApi?.id ?? metaApiRecord.id,
-          copyFactoryStrategyId: settings.copyFactoryStrategyId,
-          copyFactorySubscriberId: mt5.metaApiAccountId,
-          status: "active",
-          multiplier: String(multiplier ?? 1.0),
-          isActive: true,
-          activatedAt: new Date(),
-        });
-      } else {
-        await db
-          .update(copyFactoryRelationshipsTable)
-          .set({
-            status: "active",
-            isActive: true,
-            multiplier: String(multiplier ?? 1.0),
-            activatedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(copyFactoryRelationshipsTable.id, existing[0].id));
-      }
-
-      await logAudit("copy_factory_subscriber_added", req, {
-        userId: req.user!.userId,
-        targetId: mt5.id,
-        targetType: "mt5_account",
-        metadata: { strategyId: settings.copyFactoryStrategyId, multiplier },
-      });
-
-      res.json({
-        message: "Registered with CopyFactory successfully",
-        strategyId: settings.copyFactoryStrategyId,
-        subscriberAccountId: mt5.metaApiAccountId,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "CopyFactory registration failed";
-      res.status(502).json({ error: message });
-    }
+    res.status(202).json({
+      message: "CopyFactory registration queued — processing in background",
+      jobId: job.id,
+      metaApiAccountId: mt5.metaApiAccountId,
+    });
   },
 );
 
+// ── DELETE /mt5/accounts/:id ───────────────────────────────────────────────────
+/**
+ * Enqueues an AccountDeploymentQueue removal job and returns 202 Accepted.
+ * MetaApi undeploy + delete is a two-step async operation.
+ */
 router.delete("/accounts/:id", async (req: AuthRequest, res) => {
   const [mt5] = await db
     .select()
@@ -332,19 +306,30 @@ router.delete("/accounts/:id", async (req: AuthRequest, res) => {
     return;
   }
 
-  try {
-    await deploymentService.removeAccount(mt5.id);
-    await logAudit("mt5_account_removed", req, {
-      userId: req.user!.userId,
-      targetId: mt5.id,
-      targetType: "mt5_account",
-      metadata: { login: mt5.login },
-    });
-    res.json({ message: "Account removed" });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Removal failed";
-    res.status(502).json({ error: message });
-  }
+  const job = await AccountDeploymentQueue.add("remove-account", {
+    type: "remove-account",
+    mt5AccountDbId: mt5.id,
+    userId: req.user!.userId,
+    login: mt5.login,
+  });
+
+  logger.info(
+    { jobId: job.id, mt5AccountId: mt5.id, userId: req.user!.userId, login: mt5.login },
+    "[MT5Route] Account removal job enqueued",
+  );
+
+  await logAudit("mt5_account_removed", req, {
+    userId: req.user!.userId,
+    targetId: mt5.id,
+    targetType: "mt5_account",
+    metadata: { login: mt5.login, jobId: job.id },
+  });
+
+  res.status(202).json({
+    message: "Account removal queued — processing in background",
+    jobId: job.id,
+    mt5AccountId: mt5.id,
+  });
 });
 
 export default router;

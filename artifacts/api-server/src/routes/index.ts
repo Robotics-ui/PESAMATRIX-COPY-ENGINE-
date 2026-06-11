@@ -8,6 +8,7 @@ import copyFactoryRouter from "./copyfactory.js";
 import paymentsRouter from "./payments.js";
 import subscriptionsRouter from "./subscriptions.js";
 import adminSubscriptionsRouter from "./admin-subscriptions.js";
+import queueRouter from "./queue.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
@@ -19,6 +20,7 @@ router.use("/admin", authenticate, requireRole("admin"), adminRouter);
 router.use("/admin", authenticate, requireRole("admin"), masterRouter);
 router.use("/admin", authenticate, requireRole("admin"), copyFactoryRouter);
 router.use("/admin", authenticate, requireRole("admin"), adminSubscriptionsRouter);
+router.use("/admin", authenticate, requireRole("admin"), queueRouter);
 router.use("/mt5", authenticate, mt5Router);
 router.use("/payments", paymentsRouter);
 router.use("/subscriptions", subscriptionsRouter);

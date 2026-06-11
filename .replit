@@ -29,7 +29,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd artifacts/api-server && PORT=8080 pnpm run dev"
+args = "redis-server --daemonize yes --port 6379 --logfile /tmp/redis.log && cd artifacts/api-server && PORT=8080 pnpm run dev"
 waitForPort = 8080
 
 [agent]
@@ -39,6 +39,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 6379
+externalPort = 3000
 
 [[ports]]
 localPort = 8080
