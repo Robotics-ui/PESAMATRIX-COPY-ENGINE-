@@ -88,6 +88,18 @@ export interface SubscriptionSettings {
   subscriptionFeePerDay: string;
   minimumSubscriptionDays: number;
   maximumSubscriptionDays: number;
+  winRate?: number;
+  totalTradesCount?: number;
+  uptimePercent?: number;
+}
+
+export interface PublicStats {
+  activeSubscribers: number;
+  completedPayments: number;
+  winRate: number;
+  totalTradesCount: number;
+  uptimePercent: number;
+  lastUpdated: string;
 }
 
 export interface SubscriptionPreview {
@@ -459,5 +471,9 @@ export const api = {
       if (params?.status) qs.set("status", params.status);
       return r<{ payments: Payment[]; total: number; breakdown: Record<string, number> }>(`/api/admin/payments?${qs}`);
     },
+  },
+
+  public: {
+    stats: () => r<PublicStats>("/api/public/stats"),
   },
 };

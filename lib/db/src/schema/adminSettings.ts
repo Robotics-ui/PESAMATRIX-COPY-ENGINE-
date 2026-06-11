@@ -17,6 +17,9 @@ export const adminSettingsTable = pgTable("admin_settings", {
   masterMt5Login: text("master_mt5_login"),
   masterMetaApiAccountId: text("master_meta_api_account_id"),
   mpesaShortcode: text("mpesa_shortcode"),
+  winRate: numeric("win_rate", { precision: 5, scale: 2 }).notNull().default("74.0"),
+  totalTradesCount: integer("total_trades_count").notNull().default(50000),
+  uptimePercent: numeric("uptime_percent", { precision: 5, scale: 2 }).notNull().default("99.9"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   updatedBy: uuid("updated_by"),
 });

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
 import authRouter from "./auth.js";
+import publicRouter from "./public.js";
 import adminRouter from "./admin.js";
 import masterRouter from "./master.js";
 import mt5Router from "./mt5.js";
@@ -19,6 +20,7 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use("/public", publicRouter);
 router.use("/admin", authenticate, requireRole("admin"), adminRouter);
 router.use("/admin", authenticate, requireRole("admin"), masterRouter);
 router.use("/admin", authenticate, requireRole("admin"), copyFactoryRouter);

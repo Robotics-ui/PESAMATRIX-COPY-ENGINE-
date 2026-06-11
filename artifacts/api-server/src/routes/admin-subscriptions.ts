@@ -21,6 +21,9 @@ const UpdateSettingsSchema = z.object({
   subscriptionFeePerDay: z.number().positive().optional(),
   minimumSubscriptionDays: z.number().int().min(1).optional(),
   maximumSubscriptionDays: z.number().int().min(1).optional(),
+  winRate: z.number().min(0).max(100).optional(),
+  totalTradesCount: z.number().int().min(0).optional(),
+  uptimePercent: z.number().min(0).max(100).optional(),
 });
 
 const CreatePlanSchema = z.object({
@@ -58,6 +61,9 @@ router.get("/subscription-settings", async (_req, res) => {
     subscriptionFeePerDay: Number(settings?.subscriptionFeePerDay ?? 100),
     minimumSubscriptionDays: settings?.minimumSubscriptionDays ?? 7,
     maximumSubscriptionDays: settings?.maximumSubscriptionDays ?? 365,
+    winRate: parseFloat(settings?.winRate ?? "74.0"),
+    totalTradesCount: settings?.totalTradesCount ?? 50000,
+    uptimePercent: parseFloat(settings?.uptimePercent ?? "99.9"),
   });
 });
 

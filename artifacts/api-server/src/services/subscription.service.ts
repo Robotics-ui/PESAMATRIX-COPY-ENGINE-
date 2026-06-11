@@ -19,6 +19,9 @@ export interface SubscriptionSettings {
   subscriptionFeePerDay: number;
   minimumSubscriptionDays: number;
   maximumSubscriptionDays: number;
+  winRate?: number;
+  totalTradesCount?: number;
+  uptimePercent?: number;
 }
 
 export interface PricingPreview {
@@ -97,6 +100,15 @@ export class SubscriptionService {
         }),
         ...(fields.maximumSubscriptionDays !== undefined && {
           maximumSubscriptionDays: fields.maximumSubscriptionDays,
+        }),
+        ...(fields.winRate !== undefined && {
+          winRate: String(fields.winRate),
+        }),
+        ...(fields.totalTradesCount !== undefined && {
+          totalTradesCount: fields.totalTradesCount,
+        }),
+        ...(fields.uptimePercent !== undefined && {
+          uptimePercent: String(fields.uptimePercent),
         }),
         updatedAt: new Date(),
         updatedBy,

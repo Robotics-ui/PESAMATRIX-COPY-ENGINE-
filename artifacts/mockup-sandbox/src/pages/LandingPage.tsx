@@ -1,79 +1,160 @@
+import { useRef, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   TrendingUp, Shield, Zap, BarChart2, CheckCircle2, Users, Activity,
   ArrowRight, ChevronRight, CreditCard, Smartphone, MonitorSmartphone,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import WhatsAppButton from "@/components/WhatsAppButton";
+import { api } from "@/lib/api";
 
-const STATS = [
-  { value: "74%",    label: "Average Win Rate",      icon: TrendingUp  },
-  { value: "2,000+", label: "Active Subscribers",    icon: Users       },
-  { value: "50K+",   label: "Trades Auto-Copied",    icon: Activity    },
-  { value: "99.9%",  label: "Platform Uptime",       icon: Shield      },
-];
+// ── Animated counter ──────────────────────────────────────────────────────────
+function useCountUp(target: number, decimals: number, duration = 1800) {
+  const [value, setValue] = useState(0);
+  const ref = useRef<HTMLElement>(null);
+  const started = useRef(false);
 
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    started.current = false;
+    setValue(0);
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !started.current) {
+          started.current = true;
+          const startTime = performance.now();
+          const tick = (now: number) => {
+            const progress = Math.min((now - startTime) / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            setValue(parseFloat((eased * target).toFixed(decimals)));
+            if (progress < 1) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }
+      },
+      { threshold: 0.3 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [target, decimals, duration]);
+
+  return { value, ref };
+}
+
+function AnimatedStat({
+  target, suffix, label, icon: Icon, decimals = 0,
+}: {
+  target: number; suffix: string; label: string; icon: typeof TrendingUp; decimals?: number;
+}) {
+  const { value, ref } = useCountUp(target, decimals);
+  return (
+    <div className="space-y-1 text-center">
+      <div className="flex justify-center mb-2">
+        <Icon className="size-5 text-primary" />
+      </div>
+      <p
+        ref={ref as React.RefObject<HTMLParagraphElement>}
+        className="text-3xl font-extrabold text-primary tabular-nums"
+      >
+        {decimals > 0 ? value.toFixed(decimals) : Math.floor(value).toLocaleString()}
+        {suffix}
+      </p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+// ── Content ───────────────────────────────────────────────────────────────────
 const STEPS = [
   {
-    n: "01",
-    icon: Users,
-    title: "Create Your Account",
+    n: "01", icon: Users, title: "Create Your Account",
     desc: "Register in under 2 minutes with your email and phone number. No credit card required to get started.",
   },
   {
-    n: "02",
-    icon: MonitorSmartphone,
-    title: "Connect Your MT5 Account",
+    n: "02", icon: MonitorSmartphone, title: "Connect Your MT5 Account",
     desc: "Link your MetaTrader 5 account via MetaApi. Works with any MT5 broker worldwide — cloud-to-cloud, no plugins.",
   },
   {
-    n: "03",
-    icon: CreditCard,
-    title: "Subscribe via M-Pesa",
+    n: "03", icon: CreditCard, title: "Subscribe via M-Pesa",
     desc: "Pay for your chosen number of trading days using a simple M-Pesa STK push. Plans start from 5 trading days.",
   },
   {
-    n: "04",
-    icon: TrendingUp,
-    title: "Trades Copy Automatically",
+    n: "04", icon: TrendingUp, title: "Trades Copy Automatically",
     desc: "Every trade from the master strategy is mirrored to your account instantly — while you sleep, work, or travel.",
   },
 ];
 
 const FEATURES = [
   {
-    icon: Zap,
-    title: "Instant Trade Mirroring",
+    icon: Zap, title: "Instant Trade Mirroring",
     desc: "CopyFactory replicates master trades to your MT5 in milliseconds — before manual traders can even see the signal.",
   },
   {
-    icon: BarChart2,
-    title: "Trading-Days Subscription",
+    icon: BarChart2, title: "Trading-Days Subscription",
     desc: "Weekends never reduce your balance. Your subscription counts Monday–Friday only, so you pay for real market time.",
   },
   {
-    icon: Shield,
-    title: "Non-Custodial",
+    icon: Shield, title: "Non-Custodial",
     desc: "PesaMatrix never holds your funds. You keep full control of your brokerage account and all your money.",
   },
   {
-    icon: Smartphone,
-    title: "M-Pesa Payments",
+    icon: Smartphone, title: "M-Pesa Payments",
     desc: "Pay and renew with a simple M-Pesa prompt. No bank cards, no wire transfers — built for Kenyan traders.",
   },
   {
-    icon: Activity,
-    title: "Live Performance Data",
+    icon: Activity, title: "Live Performance Data",
     desc: "Track real-time equity, drawdown, win rate, and copied trade history directly from your dashboard.",
   },
   {
-    icon: TrendingUp,
-    title: "Proven Master Strategy",
+    icon: TrendingUp, title: "Proven Master Strategy",
     desc: "The master account runs a disciplined, risk-managed strategy with a consistent multi-year track record.",
   },
 ];
 
 export default function LandingPage() {
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ["public/stats"],
+    queryFn: () => api.public.stats(),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  const liveStats = [
+    {
+      target: stats?.winRate ?? 74.0,
+      suffix: "%",
+      label: "Average Win Rate",
+      icon: TrendingUp,
+      decimals: 1,
+    },
+    {
+      target: stats?.activeSubscribers ?? 2000,
+      suffix: "+",
+      label: "Active Subscribers",
+      icon: Users,
+      decimals: 0,
+    },
+    {
+      target: stats?.totalTradesCount ?? 50000,
+      suffix: "+",
+      label: "Trades Auto-Copied",
+      icon: Activity,
+      decimals: 0,
+    },
+    {
+      target: stats?.uptimePercent ?? 99.9,
+      suffix: "%",
+      label: "Platform Uptime",
+      icon: Shield,
+      decimals: 1,
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* ── Nav ─────────────────────────────────────────────────── */}
@@ -105,7 +186,6 @@ export default function LandingPage() {
 
       {/* ── Hero ────────────────────────────────────────────────── */}
       <section className="relative pt-20 pb-24 px-4 sm:px-6 overflow-hidden">
-        {/* Background glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
         <div className="relative max-w-4xl mx-auto text-center space-y-6">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs text-primary font-medium">
@@ -117,7 +197,7 @@ export default function LandingPage() {
             <span className="block text-primary">Powered by MetaApi</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Mirror the master trader's signals directly to your MetaTrader 5 account in real-time — 
+            Mirror the master trader's signals directly to your MetaTrader 5 account in real-time —
             fully automated, cloud-to-cloud. No plugins. No screen time. Just results.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
@@ -138,18 +218,21 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Stats strip ─────────────────────────────────────────── */}
+      {/* ── Live stats strip ────────────────────────────────────── */}
       <section id="stats" className="border-y border-border bg-card/40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-            {STATS.map(({ value, label, icon: Icon }) => (
-              <div key={label} className="space-y-1">
-                <div className="flex justify-center mb-2">
-                  <Icon className="size-5 text-primary" />
-                </div>
-                <p className="text-3xl font-extrabold text-primary tabular-nums">{value}</p>
-                <p className="text-xs text-muted-foreground">{label}</p>
-              </div>
+          <div className="flex items-center justify-center gap-2 mb-8">
+            <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">
+              {statsLoading ? "Loading live stats…" : "Live platform stats"}
+            </p>
+            {!statsLoading && stats && (
+              <RefreshCw className="size-3 text-muted-foreground/50" />
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {liveStats.map((s) => (
+              <AnimatedStat key={s.label} {...s} />
             ))}
           </div>
         </div>
@@ -224,7 +307,7 @@ export default function LandingPage() {
               </div>
               <h2 className="text-3xl font-bold">Ready to automate your trading?</h2>
               <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                Join hundreds of Kenyan traders copying the master strategy hands-free. 
+                Join hundreds of Kenyan traders copying the master strategy hands-free.
                 Register today and your first trades start copying within minutes.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
@@ -254,7 +337,7 @@ export default function LandingPage() {
             <span className="text-sm font-semibold">PesaMatrix</span>
           </div>
           <p className="text-xs text-muted-foreground text-center">
-            © {new Date().getFullYear()} PesaMatrix. Cloud copy-trading platform. 
+            © {new Date().getFullYear()} PesaMatrix. Cloud copy-trading platform.
             Trading involves risk — past performance does not guarantee future results.
           </p>
           <div className="flex gap-4 text-xs text-muted-foreground">
