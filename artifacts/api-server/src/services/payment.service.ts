@@ -11,6 +11,7 @@ import { mpesaService, type MpesaCallbackPayload } from "./mpesa.service.js";
 import { relationshipService } from "./relationship.service.js";
 import { logger } from "../lib/logger.js";
 import { addTradingDays } from "../lib/trading-days.js";
+import { getMpesaCallbackUrl } from "../lib/mpesa-callback-url.js";
 
 export interface InitiatePaymentParams {
   userId: string;
@@ -37,28 +38,6 @@ export interface CallbackResult {
   message: string;
 }
 
-function getCallbackUrl(): string {
-  const explicit = process.env.MPESA_CALLBACK_URL;
-  if (explicit) return explicit;
-
-  // Auto-detect from Replit runtime domain env vars
-  const replitDomains = process.env.REPLIT_DOMAINS;
-  const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
-  const domain = replitDomains
-    ? replitDomains.split(",")[0]?.trim()
-    : replitDevDomain;
-
-  if (domain) {
-    const url = `https://${domain}/api/payments/mpesa/callback`;
-    logger.info({ callbackUrl: url }, "[M-Pesa] Auto-detected callback URL from Replit domain");
-    return url;
-  }
-
-  throw new Error(
-    "MPESA_CALLBACK_URL is not configured and no Replit domain is available. " +
-    "Set MPESA_CALLBACK_URL to your public HTTPS callback endpoint.",
-  );
-}
 
 /**
  * Compute subscription start/end dates using TRADING DAYS (Mon–Fri only).
@@ -227,7 +206,7 @@ export class PaymentService {
         amount,
         accountRef: `PM-${subscription.id.slice(0, 8).toUpperCase()}`,
         description: `PesaMatrix ${plan.name}`,
-        callbackUrl: getCallbackUrl(),
+        callbackUrl: getMpesaCallbackUrl(),
       });
 
       // ── Step 7: Mark payment as processing ───────────────────────────────────

@@ -12,6 +12,7 @@ import { mpesaService } from "./mpesa.service.js";
 import { relationshipService } from "./relationship.service.js";
 import { logger } from "../lib/logger.js";
 import { addTradingDays, countTradingDaysRemaining, tradingDaysToWeeks } from "../lib/trading-days.js";
+import { getMpesaCallbackUrl } from "../lib/mpesa-callback-url.js";
 
 const MASTER_SETTINGS_KEY = "default";
 
@@ -331,8 +332,7 @@ export class SubscriptionService {
       .returning();
 
     try {
-      const callbackUrl = process.env.MPESA_CALLBACK_URL;
-      if (!callbackUrl) throw new Error("MPESA_CALLBACK_URL is not configured");
+      const callbackUrl = getMpesaCallbackUrl();
 
       const stkResult = await mpesaService.initiateStkPush({
         phone,
