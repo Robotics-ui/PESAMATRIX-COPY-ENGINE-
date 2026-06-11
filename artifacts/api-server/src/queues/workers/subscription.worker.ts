@@ -4,6 +4,7 @@ import { db, subscriptionsTable } from "@workspace/db";
 import { getRedisConnection } from "../connection.js";
 import { relationshipService } from "../../services/relationship.service.js";
 import { logger } from "../../lib/logger.js";
+import { addTradingDays } from "../../lib/trading-days.js";
 import type { SubscriptionJobData } from "../job-types.js";
 
 const QUEUE_NAME = "SubscriptionQueue";
@@ -138,14 +139,15 @@ async function processJob(job: Job<SubscriptionJobData>): Promise<unknown> {
       const now = new Date();
       const isRenewal = sub.status === "active" && sub.endDate !== null && sub.endDate > now;
       const startDate = isRenewal ? sub.endDate! : now;
-      const endDate = new Date(startDate.getTime() + sub.numberOfDays * 24 * 60 * 60 * 1000);
+      // Use trading days (Mon–Fri only) — consistent with payment.service.ts and subscription.service.ts
+      const endDate = addTradingDays(startDate, sub.numberOfDays);
 
       await db
         .update(subscriptionsTable)
         .set({ status: "active", isActive: true, startDate, endDate, updatedAt: new Date() })
         .where(eq(subscriptionsTable.id, subscriptionId));
 
-      log.info({ startDate, endDate, isRenewal }, "[SubscriptionWorker] Subscription ACTIVATED");
+      log.info({ startDate, endDate, isRenewal, tradingDays: sub.numberOfDays }, "[SubscriptionWorker] Subscription ACTIVATED");
 
       const cfResult = await relationshipService.onSubscriptionActivated({ subscriptionId, userId }).catch((e) => {
         log.error({ e }, "[SubscriptionWorker] CopyFactory attach failed — will retry");

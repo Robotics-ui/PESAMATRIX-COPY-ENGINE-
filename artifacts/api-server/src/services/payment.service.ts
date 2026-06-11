@@ -12,6 +12,7 @@ import { relationshipService } from "./relationship.service.js";
 import { logger } from "../lib/logger.js";
 import { addTradingDays } from "../lib/trading-days.js";
 import { getMpesaCallbackUrl } from "../lib/mpesa-callback-url.js";
+import { PaymentQueue, NotificationQueue } from "../queues/queues.js";
 
 export interface InitiatePaymentParams {
   userId: string;
@@ -231,6 +232,35 @@ export class PaymentService {
         "[Payment] STK push successful — waiting for M-Pesa callback",
       );
 
+      // ── Step 8: Enqueue background poll job as callback fallback ──────────────
+      // If Safaricom's callback never arrives (network issues, timeout), this
+      // job will poll Daraja directly every 30s for up to 4 attempts (2 minutes).
+      await PaymentQueue.add(
+        "poll-payment-status",
+        {
+          type: "poll-payment-status",
+          paymentId: payment.id,
+          checkoutRequestId: stkResult.checkoutRequestId,
+          userId,
+        },
+        {
+          delay: 45_000,       // first poll 45s after STK push (give callback time to arrive)
+          attempts: 4,
+          backoff: { type: "fixed", delay: 30_000 },
+          jobId: `poll:${stkResult.checkoutRequestId}`,   // deduplicate if called twice
+        },
+      ).catch((err) => {
+        logger.warn(
+          { err, paymentId: payment.id, checkoutRequestId: stkResult.checkoutRequestId },
+          "[Payment] Failed to enqueue poll job — callback is still primary path",
+        );
+      });
+
+      logger.info(
+        { paymentId: payment.id, checkoutRequestId: stkResult.checkoutRequestId, delayMs: 45_000 },
+        "[Payment] Background poll job enqueued as callback fallback",
+      );
+
       return {
         paymentId: payment.id,
         subscriptionId: subscription.id,
@@ -389,6 +419,18 @@ export class PaymentService {
           },
         })
         .catch(() => {});
+
+      // ── Notify user of failed payment ─────────────────────────────────────────
+      await NotificationQueue.add("payment-failed", {
+        type: "payment-failed",
+        userId: payment.userId,
+        paymentId: payment.id,
+        reason: ResultDesc,
+      }).catch((err) => {
+        logger.warn({ err, paymentId: payment.id }, "[Callback] Failed to enqueue payment-failed notification");
+      });
+
+      logger.info({ paymentId: payment.id, resultCode: ResultCode }, "[Callback] payment-failed notification enqueued");
 
       return {
         success: false,
@@ -564,6 +606,32 @@ export class PaymentService {
         },
       })
       .catch(() => {});
+
+    // ── Step 9: Enqueue user notifications ────────────────────────────────────
+    // Fire-and-forget — notification delivery must never block the payment flow.
+    await NotificationQueue.add("payment-confirmed", {
+      type: "payment-confirmed",
+      userId: payment.userId,
+      mpesaRef,
+      amount: paidAmount,
+      subscriptionId,
+    }).catch((err) => {
+      logger.warn({ err, paymentId: payment.id }, "[Callback] Failed to enqueue payment-confirmed notification");
+    });
+
+    await NotificationQueue.add("subscription-activated", {
+      type: "subscription-activated",
+      userId: subscription.userId,
+      subscriptionId,
+      endDate: endDate.toISOString(),
+    }).catch((err) => {
+      logger.warn({ err, subscriptionId }, "[Callback] Failed to enqueue subscription-activated notification");
+    });
+
+    logger.info(
+      { paymentId: payment.id, subscriptionId, userId: payment.userId },
+      "[Callback] payment-confirmed and subscription-activated notifications enqueued",
+    );
 
     logger.info(
       {
