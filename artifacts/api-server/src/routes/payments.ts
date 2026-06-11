@@ -6,7 +6,6 @@ import {
   paymentsTable,
   subscriptionsTable,
   plansTable,
-  auditLogsTable,
 } from "@workspace/db";
 import { authenticate } from "../middlewares/authenticate.js";
 import { validateBody } from "../middlewares/validate.js";
@@ -28,6 +27,7 @@ const CheckStatusSchema = z.object({
   checkoutRequestId: z.string().min(1),
 });
 
+// ── GET /payments/plans ───────────────────────────────────────────────────────
 router.get("/plans", async (_req, res) => {
   const plans = await db
     .select()
@@ -38,6 +38,7 @@ router.get("/plans", async (_req, res) => {
   res.json({ plans });
 });
 
+// ── GET /payments/subscriptions ───────────────────────────────────────────────
 router.get("/subscriptions", authenticate, async (req: AuthRequest, res) => {
   const subscriptions = await db
     .select({
@@ -52,6 +53,7 @@ router.get("/subscriptions", authenticate, async (req: AuthRequest, res) => {
   res.json({ subscriptions });
 });
 
+// ── GET /payments/subscriptions/active ────────────────────────────────────────
 router.get("/subscriptions/active", authenticate, async (req: AuthRequest, res) => {
   const [subscription] = await db
     .select({
@@ -78,6 +80,14 @@ router.get("/subscriptions/active", authenticate, async (req: AuthRequest, res) 
   res.json(subscription);
 });
 
+// ── POST /payments/pay ────────────────────────────────────────────────────────
+/**
+ * Initiate an M-Pesa STK push for a subscription payment.
+ *
+ * Idempotent: if the user has an in-flight payment (pending/processing)
+ * created within the last 10 minutes, returns that existing record instead
+ * of firing a new STK push.
+ */
 router.post(
   "/pay",
   authenticate,
@@ -93,31 +103,36 @@ router.post(
         phone: body.phone ?? "",
       });
 
-      await logAudit("payment_initiated", req, {
-        userId: req.user!.userId,
-        targetId: result.paymentId,
-        targetType: "payment",
-        metadata: {
-          subscriptionId: result.subscriptionId,
-          amount: result.amount,
-          checkoutRequestId: result.checkoutRequestId,
-        },
-      });
+      if (!result.idempotent) {
+        await logAudit("payment_initiated", req, {
+          userId: req.user!.userId,
+          targetId: result.paymentId,
+          targetType: "payment",
+          metadata: {
+            subscriptionId: result.subscriptionId,
+            amount: result.amount,
+            checkoutRequestId: result.checkoutRequestId,
+          },
+        });
+      }
 
-      res.status(201).json({
+      res.status(result.idempotent ? 200 : 201).json({
         message: result.customerMessage,
         paymentId: result.paymentId,
         subscriptionId: result.subscriptionId,
         checkoutRequestId: result.checkoutRequestId,
         amount: result.amount,
+        idempotent: result.idempotent ?? false,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Payment initiation failed";
+      logger.error({ err, userId: req.user!.userId }, "[Route] Payment initiation error");
       res.status(400).json({ error: message });
     }
   },
 );
 
+// ── GET /payments/payments ────────────────────────────────────────────────────
 router.get("/payments", authenticate, async (req: AuthRequest, res) => {
   const payments = await db
     .select()
@@ -129,6 +144,33 @@ router.get("/payments", authenticate, async (req: AuthRequest, res) => {
   res.json({ payments });
 });
 
+// ── GET /payments/payments/:id ────────────────────────────────────────────────
+/**
+ * Fetch a single payment by its UUID.
+ * Scoped to the authenticated user (cannot see other users' payments).
+ */
+router.get("/payments/:id", authenticate, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+
+  const payment = await paymentService.getPaymentById(id, req.user!.userId);
+
+  if (!payment) {
+    res.status(404).json({ error: "Payment not found" });
+    return;
+  }
+
+  res.json({ payment });
+});
+
+// ── POST /payments/status ─────────────────────────────────────────────────────
+/**
+ * Poll the status of an in-flight payment.
+ *
+ * If the payment is still `processing`, this endpoint queries Safaricom Daraja
+ * directly.  If Daraja confirms success, the full activation workflow runs
+ * (subscription activated + CopyFactory registered) so the frontend doesn't
+ * need to wait for the async callback.
+ */
 router.post(
   "/payments/status",
   authenticate,
@@ -136,93 +178,77 @@ router.post(
   async (req: AuthRequest, res) => {
     const { checkoutRequestId } = req.body as z.infer<typeof CheckStatusSchema>;
 
-    const [payment] = await db
-      .select({ userId: paymentsTable.userId })
-      .from(paymentsTable)
-      .where(
-        and(
-          eq(paymentsTable.checkoutRequestId, checkoutRequestId),
-          eq(paymentsTable.userId, req.user!.userId),
-        ),
-      )
-      .limit(1);
-
-    if (!payment) {
-      res.status(404).json({ error: "Payment not found" });
-      return;
-    }
+    logger.info(
+      { checkoutRequestId, userId: req.user!.userId },
+      "[Route] Payment status check requested",
+    );
 
     try {
-      const status = await paymentService.checkPaymentStatus(checkoutRequestId);
+      const status = await paymentService.checkPaymentStatus(
+        checkoutRequestId,
+        req.user!.userId,
+      );
+
+      if (!status.paymentId) {
+        res.status(404).json({ error: "Payment not found" });
+        return;
+      }
+
       res.json(status);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Status check failed";
-      res.status(502).json({ error: message });
+      logger.error({ err, checkoutRequestId }, "[Route] Payment status check error");
+      res.status(err instanceof Error && err.message === "Payment not found" ? 404 : 502).json({ error: message });
     }
   },
 );
 
+// ── POST /payments/mpesa/callback ─────────────────────────────────────────────
 /**
  * M-Pesa STK callback — intentionally unauthenticated (called by Safaricom).
  *
- * Security model: we validate structural integrity of the payload and match
- * against CheckoutRequestID records we created ourselves.  Unrecognised IDs
- * are silently accepted (200 OK) to prevent Safaricom from retrying forever.
+ * Security model:
+ *  - We validate structural integrity of the payload (isValidCallback).
+ *  - We match CheckoutRequestID against records we created ourselves.
+ *  - Unrecognised IDs are silently accepted (200 OK) to prevent Safaricom
+ *    from retrying indefinitely with a broken payload.
+ *  - Duplicate callbacks are rejected atomically via a conditional DB UPDATE.
  *
- * We respond 200 immediately and process asynchronously so the response is
- * always delivered before our DB work could time out.
+ * Pattern: respond 200 IMMEDIATELY, then process asynchronously.
+ * This ensures Safaricom always gets a timely response regardless of DB latency.
  */
 router.post("/mpesa/callback", (req, res) => {
   res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
 
   if (!mpesaService.isValidCallback(req.body)) {
-    logger.warn({ body: req.body }, "Invalid M-Pesa callback payload received");
+    logger.warn({ body: req.body }, "[Callback] Invalid M-Pesa callback payload — discarding");
     return;
   }
 
+  const checkoutRequestId = req.body?.Body?.stkCallback?.CheckoutRequestID ?? "unknown";
+  const resultCode = req.body?.Body?.stkCallback?.ResultCode;
+
+  logger.info(
+    { checkoutRequestId, resultCode },
+    "[Callback] Valid M-Pesa callback received — processing asynchronously",
+  );
+
   void paymentService
     .handleCallback(req.body)
-    .then(async (result) => {
-      if (!result.success || !result.paymentId) return;
-
-      const [payment] = await db
-        .select({ userId: paymentsTable.userId })
-        .from(paymentsTable)
-        .where(eq(paymentsTable.id, result.paymentId))
-        .limit(1)
-        .catch(() => [null]);
-
-      if (!payment) return;
-
-      await db
-        .insert(auditLogsTable)
-        .values({
-          action: "payment_completed",
-          userId: payment.userId,
-          targetId: result.paymentId,
-          targetType: "payment",
-          metadata: {
-            subscriptionId: result.subscriptionId,
-            mpesaRef: result.mpesaRef,
-          },
-        })
-        .catch(() => {});
-
-      if (result.subscriptionId) {
-        await db
-          .insert(auditLogsTable)
-          .values({
-            action: "subscription_activated",
-            userId: payment.userId,
-            targetId: result.subscriptionId,
-            targetType: "subscription",
-            metadata: { mpesaRef: result.mpesaRef, paymentId: result.paymentId },
-          })
-          .catch(() => {});
-      }
+    .then((result) => {
+      logger.info(
+        {
+          checkoutRequestId,
+          paymentId: result.paymentId,
+          success: result.success,
+          mpesaRef: result.mpesaRef,
+          message: result.message,
+        },
+        "[Callback] M-Pesa callback processing complete",
+      );
     })
     .catch((err) => {
-      logger.error({ err }, "M-Pesa callback processing error");
+      logger.error({ err, checkoutRequestId }, "[Callback] M-Pesa callback processing error");
     });
 });
 
