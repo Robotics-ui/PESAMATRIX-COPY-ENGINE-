@@ -1,1 +1,3 @@
 - [PesaMatrix Design Preferences](pesamatrix-design.md) — UI must resemble TradePro SaaS screenshot; all purple colors replaced with green.
+- [Express Router Scoping](express-router-scoping.md) — Never use router.use(middleware) in sub-routers mounted without a path prefix; use path-prefixed mounting in index.ts instead.
+- [Zod Import in API Server](zod-import.md) — Use import from "zod" (not "zod/v4") in api-server routes; use z.string().email() not z.email() (catalog is zod v3).

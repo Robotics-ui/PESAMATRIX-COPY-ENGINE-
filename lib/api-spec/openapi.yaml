@@ -14,13 +14,16 @@ tags:
     description: Authentication operations
   - name: admin
     description: Admin operations
+  - name: master-account
+    description: Admin — Master MT5 account & CopyFactory strategy
+  - name: mt5
+    description: User — MT5 account management via MetaApi
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -29,6 +32,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  # ── Auth ────────────────────────────────────────────────────────────────────
   /auth/register:
     post:
       operationId: register
@@ -42,29 +46,21 @@ paths:
               $ref: "#/components/schemas/RegisterRequest"
       responses:
         "201":
-          description: User registered
+          description: Registered
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
         "409":
-          description: Email already in use
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Conflict"
         "422":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Validation"
 
   /auth/login:
     post:
       operationId: login
       tags: [auth]
-      summary: Login with email and password
+      summary: Login
       requestBody:
         required: true
         content:
@@ -73,38 +69,30 @@ paths:
               $ref: "#/components/schemas/LoginRequest"
       responses:
         "200":
-          description: Login successful
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
         "401":
-          description: Invalid credentials
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
 
   /auth/logout:
     post:
       operationId: logout
       tags: [auth]
-      summary: Logout current user
+      summary: Logout
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Logged out
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
         "401":
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
 
   /auth/refresh:
     post:
@@ -118,39 +106,32 @@ paths:
               $ref: "#/components/schemas/RefreshRequest"
       responses:
         "200":
-          description: New access token
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RefreshResponse"
         "401":
-          description: Invalid refresh token
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
 
   /auth/me:
     get:
       operationId: getMe
       tags: [auth]
-      summary: Get current authenticated user
+      summary: Current authenticated user
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Current user
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MeResponse"
         "401":
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
 
+  # ── Admin general ────────────────────────────────────────────────────────────
   /admin/dashboard:
     get:
       operationId: adminDashboard
@@ -160,56 +141,40 @@ paths:
         - bearerAuth: []
       responses:
         "200":
-          description: Dashboard data
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardResponse"
         "401":
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Forbidden"
 
   /admin/users:
     get:
       operationId: adminListUsers
       tags: [admin]
-      summary: List all users (admin only)
+      summary: List all users
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: List of users
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UsersListResponse"
         "401":
-          description: Unauthenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Forbidden"
 
   /admin/users/{id}:
     get:
       operationId: adminGetUser
       tags: [admin]
-      summary: Get user details (admin only)
+      summary: Get user detail
       security:
         - bearerAuth: []
       parameters:
@@ -221,32 +186,311 @@ paths:
             format: uuid
       responses:
         "200":
-          description: User details
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserDetailResponse"
         "404":
-          description: User not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/NotFound"
 
   /admin/audit-logs:
     get:
       operationId: adminAuditLogs
       tags: [admin]
-      summary: Get audit logs (admin only)
+      summary: Audit log trail
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Audit logs
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditLogsResponse"
+
+  /admin/subscribers:
+    get:
+      operationId: adminListSubscribers
+      tags: [admin]
+      summary: List all CopyFactory subscriber relationships
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  relationships:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CopyFactoryRelationship"
+                required: [relationships]
+
+  # ── Master account (admin) ───────────────────────────────────────────────────
+  /admin/master-account:
+    post:
+      operationId: registerMasterAccount
+      tags: [master-account]
+      summary: Register and deploy master MT5 account + create CopyFactory strategy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterMasterAccountRequest"
+      responses:
+        "201":
+          description: Master account deployed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasterAccountResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+    get:
+      operationId: getMasterAccount
+      tags: [master-account]
+      summary: Get master account details from DB
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasterAccountDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteMasterAccount
+      tags: [master-account]
+      summary: Remove master account from MetaApi and DB
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /admin/master-account/status:
+    get:
+      operationId: getMasterAccountStatus
+      tags: [master-account]
+      summary: Refresh deployment and synchronization status from MetaApi
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /admin/master-account/redeploy:
+    post:
+      operationId: redeployMasterAccount
+      tags: [master-account]
+      summary: Trigger a redeploy of the master account on MetaApi
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Redeploy initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /admin/master-account/strategy:
+    get:
+      operationId: getMasterStrategy
+      tags: [master-account]
+      summary: Get CopyFactory strategy details from MetaApi
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  # ── User MT5 accounts ────────────────────────────────────────────────────────
+  /mt5/accounts:
+    get:
+      operationId: listMt5Accounts
+      tags: [mt5]
+      summary: List my MT5 accounts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mt5AccountsListResponse"
+    post:
+      operationId: registerMt5Account
+      tags: [mt5]
+      summary: Register an MT5 account (no deployment yet)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterMt5Request"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mt5AccountResponse"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /mt5/accounts/{id}:
+    get:
+      operationId: getMt5Account
+      tags: [mt5]
+      summary: Get account detail with MetaApi and CopyFactory info
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mt5AccountDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteMt5Account
+      tags: [mt5]
+      summary: Undeploy and remove MT5 account
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /mt5/accounts/{id}/deploy:
+    post:
+      operationId: deployMt5Account
+      tags: [mt5]
+      summary: Deploy account to MetaApi and register with CopyFactory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeployMt5Request"
+      responses:
+        "200":
+          description: Deployed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeployMt5Response"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /mt5/accounts/{id}/status:
+    get:
+      operationId: getMt5AccountStatus
+      tags: [mt5]
+      summary: Refresh deployment and sync status from MetaApi
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /mt5/accounts/{id}/copyfactory:
+    post:
+      operationId: registerMt5CopyFactory
+      tags: [mt5]
+      summary: Register account as a CopyFactory subscriber
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterCopyFactoryRequest"
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/BadGateway"
 
 components:
   securitySchemes:
@@ -255,30 +499,80 @@ components:
       scheme: bearer
       bearerFormat: JWT
 
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Unauthenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Validation:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadGateway:
+      description: MetaApi or CopyFactory upstream error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
   schemas:
     HealthStatus:
       type: object
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
     ErrorResponse:
       type: object
       properties:
         error:
           type: string
-      required:
-        - error
+      required: [error]
 
     MessageResponse:
       type: object
       properties:
         message:
           type: string
-      required:
-        - message
+      required: [message]
 
     RegisterRequest:
       type: object
@@ -295,9 +589,7 @@ components:
           type: string
         phone:
           type: string
-      required:
-        - email
-        - password
+      required: [email, password]
 
     LoginRequest:
       type: object
@@ -307,9 +599,7 @@ components:
           format: email
         password:
           type: string
-      required:
-        - email
-        - password
+      required: [email, password]
 
     RefreshRequest:
       type: object
@@ -322,8 +612,7 @@ components:
       properties:
         accessToken:
           type: string
-      required:
-        - accessToken
+      required: [accessToken]
 
     UserProfile:
       type: object
@@ -345,10 +634,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required:
-        - id
-        - email
-        - role
+      required: [id, email, role]
 
     AuthResponse:
       type: object
@@ -357,17 +643,14 @@ components:
           type: string
         user:
           $ref: "#/components/schemas/UserProfile"
-      required:
-        - accessToken
-        - user
+      required: [accessToken, user]
 
     MeResponse:
       type: object
       properties:
         user:
           $ref: "#/components/schemas/UserProfile"
-      required:
-        - user
+      required: [user]
 
     DashboardStats:
       type: object
@@ -378,10 +661,7 @@ components:
           type: integer
         subscriberUsers:
           type: integer
-      required:
-        - totalUsers
-        - adminUsers
-        - subscriberUsers
+      required: [totalUsers, adminUsers, subscriberUsers]
 
     DashboardResponse:
       type: object
@@ -396,10 +676,7 @@ components:
           type: array
           items:
             type: object
-      required:
-        - stats
-        - recentUsers
-        - recentActivity
+      required: [stats, recentUsers, recentActivity]
 
     UsersListResponse:
       type: object
@@ -408,8 +685,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UserProfile"
-      required:
-        - users
+      required: [users]
 
     UserDetailResponse:
       type: object
@@ -420,9 +696,7 @@ components:
           type: array
           items:
             type: object
-      required:
-        - user
-        - activity
+      required: [user, activity]
 
     AuditLogsResponse:
       type: object
@@ -431,5 +705,208 @@ components:
           type: array
           items:
             type: object
-      required:
-        - logs
+      required: [logs]
+
+    CopyFactoryRelationship:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        subscriberUserId:
+          type: string
+          format: uuid
+        copyFactoryStrategyId:
+          type: string
+        copyFactorySubscriberId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, active, paused, removed, error]
+        multiplier:
+          type: string
+        isActive:
+          type: boolean
+      required: [id, subscriberUserId, copyFactoryStrategyId, status, multiplier, isActive]
+
+    Mt5Account:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        login:
+          type: string
+        server:
+          type: string
+        broker:
+          type: string
+        isMaster:
+          type: boolean
+        metaApiAccountId:
+          type: string
+          nullable: true
+        deploymentStatus:
+          type: string
+          enum: [not_deployed, deploying, deployed, failed, removed]
+        synchronizationStatus:
+          type: string
+          enum: [not_synced, synchronizing, synchronized, out_of_sync, error]
+        lastSyncedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, login, server, broker, isMaster, deploymentStatus, synchronizationStatus]
+
+    SyncStatusResponse:
+      type: object
+      properties:
+        metaApiAccountId:
+          type: string
+        state:
+          type: string
+        connectionStatus:
+          type: string
+          nullable: true
+        isSynchronized:
+          type: boolean
+        deploymentStatus:
+          type: string
+        synchronizationStatus:
+          type: string
+      required: [metaApiAccountId, isSynchronized, deploymentStatus, synchronizationStatus]
+
+    RegisterMasterAccountRequest:
+      type: object
+      properties:
+        login:
+          type: string
+        password:
+          type: string
+        server:
+          type: string
+        broker:
+          type: string
+        region:
+          type: string
+          enum: [london, new-york, singapore, sydney, tokyo]
+      required: [login, password, server, broker]
+
+    MasterAccountResponse:
+      type: object
+      properties:
+        mt5Account:
+          $ref: "#/components/schemas/Mt5Account"
+        metaApiAccountId:
+          type: string
+        copyFactoryStrategyId:
+          type: string
+        state:
+          type: string
+      required: [mt5Account, metaApiAccountId, copyFactoryStrategyId]
+
+    MasterAccountDetailResponse:
+      type: object
+      properties:
+        mt5Account:
+          $ref: "#/components/schemas/Mt5Account"
+        metaApiAccount:
+          type: object
+          nullable: true
+        settings:
+          type: object
+          nullable: true
+      required: [mt5Account]
+
+    StrategyResponse:
+      type: object
+      properties:
+        strategy:
+          type: object
+        strategyId:
+          type: string
+      required: [strategy, strategyId]
+
+    RegisterMt5Request:
+      type: object
+      properties:
+        login:
+          type: string
+        server:
+          type: string
+        broker:
+          type: string
+        region:
+          type: string
+          enum: [london, new-york, singapore, sydney, tokyo]
+      required: [login, server, broker]
+
+    DeployMt5Request:
+      type: object
+      properties:
+        password:
+          type: string
+        multiplier:
+          type: number
+          minimum: 0.01
+          maximum: 100
+      required: [password]
+
+    DeployMt5Response:
+      type: object
+      properties:
+        metaApiAccountId:
+          type: string
+        copyFactoryStrategyId:
+          type: string
+        copyFactoryRelationshipId:
+          type: string
+          format: uuid
+        state:
+          type: string
+      required: [metaApiAccountId, copyFactoryStrategyId]
+
+    RegisterCopyFactoryRequest:
+      type: object
+      properties:
+        multiplier:
+          type: number
+          minimum: 0.01
+          maximum: 100
+
+    Mt5AccountResponse:
+      type: object
+      properties:
+        mt5Account:
+          $ref: "#/components/schemas/Mt5Account"
+      required: [mt5Account]
+
+    Mt5AccountDetailResponse:
+      type: object
+      properties:
+        mt5Account:
+          $ref: "#/components/schemas/Mt5Account"
+        metaApiAccount:
+          type: object
+          nullable: true
+        copyFactoryRelationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/CopyFactoryRelationship"
+      required: [mt5Account, copyFactoryRelationships]
+
+    Mt5AccountsListResponse:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+      required: [accounts]

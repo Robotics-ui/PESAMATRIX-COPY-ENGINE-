@@ -1,14 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable, auditLogsTable } from "@workspace/db";
 import { desc, eq, count } from "drizzle-orm";
-import { authenticate } from "../middlewares/authenticate.js";
-import { requireRole } from "../middlewares/requireRole.js";
 
 const router: IRouter = Router();
 
-router.use(authenticate, requireRole("admin"));
-
-router.get("/admin/dashboard", async (_req, res) => {
+router.get("/dashboard", async (_req, res) => {
   const [totalUsers] = await db
     .select({ count: count() })
     .from(usersTable);
@@ -48,7 +44,7 @@ router.get("/admin/dashboard", async (_req, res) => {
   });
 });
 
-router.get("/admin/users", async (_req, res) => {
+router.get("/users", async (_req, res) => {
   const users = await db
     .select({
       id: usersTable.id,
@@ -66,7 +62,7 @@ router.get("/admin/users", async (_req, res) => {
   res.json({ users });
 });
 
-router.get("/admin/users/:id", async (req, res) => {
+router.get("/users/:id", async (req, res) => {
   const [user] = await db
     .select({
       id: usersTable.id,
@@ -97,7 +93,7 @@ router.get("/admin/users/:id", async (req, res) => {
   res.json({ user, activity });
 });
 
-router.get("/admin/audit-logs", async (_req, res) => {
+router.get("/audit-logs", async (_req, res) => {
   const logs = await db
     .select()
     .from(auditLogsTable)
