@@ -2,6 +2,7 @@ import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { subscriptionScheduler } from "./services/subscription.scheduler.js";
 import { startAllWorkers, stopAllWorkers } from "./queues/index.js";
+import { logMpesaConfigStatus } from "./services/mpesa.service.js";
 
 const rawPort = process.env["PORT"];
 
@@ -22,6 +23,8 @@ const server = app.listen(port, (err?: Error) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  logMpesaConfigStatus();
 
   startAllWorkers();
   logger.info("[Workers] BullMQ workers started");

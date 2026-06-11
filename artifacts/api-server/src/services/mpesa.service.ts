@@ -70,6 +70,49 @@ function getConfig() {
   return { consumerKey, consumerSecret, shortcode, passkey };
 }
 
+/**
+ * Resolve the M-Pesa TransactionType.
+ * Set MPESA_TRANSACTION_TYPE=CustomerBuyGoodsOnline for Till numbers.
+ * Defaults to CustomerPayBillOnline (Paybill).
+ */
+function getTransactionType(): string {
+  const t = process.env.MPESA_TRANSACTION_TYPE ?? "CustomerPayBillOnline";
+  if (t !== "CustomerPayBillOnline" && t !== "CustomerBuyGoodsOnline") {
+    logger.warn({ type: t }, "[M-Pesa] Unknown MPESA_TRANSACTION_TYPE — defaulting to CustomerPayBillOnline");
+    return "CustomerPayBillOnline";
+  }
+  return t;
+}
+
+/**
+ * Log the current M-Pesa configuration state (no secret values).
+ * Called at startup to make production issues obvious.
+ */
+export function logMpesaConfigStatus(): void {
+  const env = getEnv();
+  const configured = {
+    MPESA_ENV: env,
+    MPESA_CONSUMER_KEY: !!process.env.MPESA_CONSUMER_KEY,
+    MPESA_CONSUMER_SECRET: !!process.env.MPESA_CONSUMER_SECRET,
+    MPESA_SHORTCODE: !!process.env.MPESA_SHORTCODE,
+    MPESA_PASSKEY: !!process.env.MPESA_PASSKEY,
+    MPESA_CALLBACK_URL: process.env.MPESA_CALLBACK_URL ?? "(will auto-detect from Replit domain)",
+    MPESA_TRANSACTION_TYPE: process.env.MPESA_TRANSACTION_TYPE ?? "CustomerPayBillOnline (default)",
+  };
+
+  const missing = (["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_SHORTCODE", "MPESA_PASSKEY"] as const)
+    .filter((k) => !process.env[k]);
+
+  if (env === "production" && missing.length > 0) {
+    logger.error(
+      { missing, configured },
+      "[M-Pesa] ⚠️  PRODUCTION mode but credentials are MISSING — payments will fail",
+    );
+  } else {
+    logger.info(configured, `[M-Pesa] Configuration loaded (${env})`);
+  }
+}
+
 function baseUrl(): string {
   return DARAJA_URLS[getEnv()].base;
 }
@@ -94,28 +137,36 @@ export class MpesaService {
 
     const { consumerKey, consumerSecret } = getConfig();
     const credentials = Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");
+    const env = getEnv();
 
-    const res = await fetch(
-      `${baseUrl()}/oauth/v1/generate?grant_type=client_credentials`,
-      {
-        headers: {
-          Authorization: `Basic ${credentials}`,
+    try {
+      const res = await fetch(
+        `${baseUrl()}/oauth/v1/generate?grant_type=client_credentials`,
+        {
+          headers: {
+            Authorization: `Basic ${credentials}`,
+          },
         },
-      },
-    );
+      );
 
-    const data = await handleDarajaResponse<{ access_token: string; expires_in: string }>(
-      res,
-      "getAccessToken",
-    );
+      const data = await handleDarajaResponse<{ access_token: string; expires_in: string }>(
+        res,
+        "getAccessToken",
+      );
 
-    const expiresIn = parseInt(data.expires_in, 10) || 3600;
-    this.tokenCache = {
-      value: data.access_token,
-      expiresAt: Date.now() + (expiresIn - 60) * 1000,
-    };
+      const expiresIn = parseInt(data.expires_in, 10) || 3600;
+      this.tokenCache = {
+        value: data.access_token,
+        expiresAt: Date.now() + (expiresIn - 60) * 1000,
+      };
 
-    return data.access_token;
+      logger.info({ env, expiresIn }, "[M-Pesa] OAuth token acquired");
+      return data.access_token;
+    } catch (err) {
+      this.tokenCache = null;
+      logger.error({ err, env }, "[M-Pesa] OAuth token acquisition FAILED — cache cleared");
+      throw err;
+    }
   }
 
   /**
@@ -150,7 +201,7 @@ export class MpesaService {
         BusinessShortCode: shortcode,
         Password: password,
         Timestamp: timestamp,
-        TransactionType: "CustomerPayBillOnline",
+        TransactionType: getTransactionType(),
         Amount: Math.ceil(params.amount),
         PartyA: normalizedPhone,
         PartyB: shortcode,

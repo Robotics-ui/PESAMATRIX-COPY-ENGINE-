@@ -77,6 +77,9 @@ export interface Payment {
   mpesaRef: string | null;
   stkPushRef: string | null;
   checkoutRequestId: string | null;
+  merchantRequestId: string | null;
+  resultCode: string | null;
+  resultDesc: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -449,11 +452,12 @@ export const api = {
       ),
     queueStats: () => r<QueueStats>("/api/admin/queue/stats"),
     queueHealth: () => r<QueueHealth>("/api/admin/queue/health"),
-    payments: (params?: { page?: number; limit?: number }) => {
+    payments: (params?: { page?: number; limit?: number; status?: string }) => {
       const qs = new URLSearchParams();
       if (params?.page) qs.set("page", String(params.page));
       if (params?.limit) qs.set("limit", String(params.limit));
-      return r<{ payments: Payment[]; total: number }>(`/api/admin/payments?${qs}`);
+      if (params?.status) qs.set("status", params.status);
+      return r<{ payments: Payment[]; total: number; breakdown: Record<string, number> }>(`/api/admin/payments?${qs}`);
     },
   },
 };

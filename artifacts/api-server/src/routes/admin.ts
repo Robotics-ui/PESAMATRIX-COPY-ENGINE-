@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable, auditLogsTable, paymentsTable } from "@workspace/db";
-import { desc, eq, count } from "drizzle-orm";
+import { desc, eq, count, and } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -107,18 +107,37 @@ router.get("/payments", async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "20"), 10)));
   const offset = (page - 1) * limit;
+  const statusFilter = req.query["status"] as string | undefined;
 
-  const [payments, [countRow]] = await Promise.all([
-    db
-      .select()
-      .from(paymentsTable)
-      .orderBy(desc(paymentsTable.createdAt))
-      .limit(limit)
-      .offset(offset),
-    db.select({ count: count() }).from(paymentsTable),
+  const validStatuses = ["pending", "processing", "completed", "failed", "cancelled"] as const;
+  type PaymentStatus = typeof validStatuses[number];
+  const isValidStatus = (s: string): s is PaymentStatus => (validStatuses as readonly string[]).includes(s);
+
+  const whereClause = statusFilter && isValidStatus(statusFilter)
+    ? eq(paymentsTable.status, statusFilter)
+    : undefined;
+
+  const [payments, [countRow], statusCounts] = await Promise.all([
+    whereClause
+      ? db.select().from(paymentsTable).where(whereClause).orderBy(desc(paymentsTable.createdAt)).limit(limit).offset(offset)
+      : db.select().from(paymentsTable).orderBy(desc(paymentsTable.createdAt)).limit(limit).offset(offset),
+    whereClause
+      ? db.select({ count: count() }).from(paymentsTable).where(whereClause)
+      : db.select({ count: count() }).from(paymentsTable),
+    Promise.all(
+      validStatuses.map(async (s) => {
+        const [row] = await db
+          .select({ count: count() })
+          .from(paymentsTable)
+          .where(eq(paymentsTable.status, s));
+        return { status: s, count: Number(row?.count ?? 0) };
+      }),
+    ),
   ]);
 
-  res.json({ payments, total: Number(countRow?.count ?? 0) });
+  const breakdown = Object.fromEntries(statusCounts.map(({ status, count }) => [status, count]));
+
+  res.json({ payments, total: Number(countRow?.count ?? 0), breakdown });
 });
 
 export default router;

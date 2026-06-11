@@ -10,6 +10,7 @@ import {
 import { mpesaService, type MpesaCallbackPayload } from "./mpesa.service.js";
 import { relationshipService } from "./relationship.service.js";
 import { logger } from "../lib/logger.js";
+import { addTradingDays } from "../lib/trading-days.js";
 
 export interface InitiatePaymentParams {
   userId: string;
@@ -37,13 +38,31 @@ export interface CallbackResult {
 }
 
 function getCallbackUrl(): string {
-  const url = process.env.MPESA_CALLBACK_URL;
-  if (!url) throw new Error("MPESA_CALLBACK_URL is not configured");
-  return url;
+  const explicit = process.env.MPESA_CALLBACK_URL;
+  if (explicit) return explicit;
+
+  // Auto-detect from Replit runtime domain env vars
+  const replitDomains = process.env.REPLIT_DOMAINS;
+  const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+  const domain = replitDomains
+    ? replitDomains.split(",")[0]?.trim()
+    : replitDevDomain;
+
+  if (domain) {
+    const url = `https://${domain}/api/payments/mpesa/callback`;
+    logger.info({ callbackUrl: url }, "[M-Pesa] Auto-detected callback URL from Replit domain");
+    return url;
+  }
+
+  throw new Error(
+    "MPESA_CALLBACK_URL is not configured and no Replit domain is available. " +
+    "Set MPESA_CALLBACK_URL to your public HTTPS callback endpoint.",
+  );
 }
 
 /**
- * Compute subscription start/end dates.
+ * Compute subscription start/end dates using TRADING DAYS (Mon–Fri only).
+ * Weekends do not count against the subscription balance.
  * If the subscription is already active and not yet expired, extend from the
  * current endDate (renewal). Otherwise start from now.
  */
@@ -57,7 +76,7 @@ function computeDates(
     currentStatus === "active" && currentEndDate !== null && currentEndDate > now;
 
   const startDate = isRenewal ? currentEndDate! : now;
-  const endDate = new Date(startDate.getTime() + numberOfDays * 24 * 60 * 60 * 1000);
+  const endDate = addTradingDays(startDate, numberOfDays);
 
   return { startDate, endDate, isRenewal };
 }
