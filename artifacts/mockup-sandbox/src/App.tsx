@@ -7,6 +7,7 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import AppShell from "@/components/layout/AppShell";
 import AdminShell from "@/components/layout/AdminShell";
 
+import LandingPage from "@/pages/LandingPage";
 import LoginPage from "@/pages/auth/LoginPage";
 import RegisterPage from "@/pages/auth/RegisterPage";
 import ChangePasswordPage from "@/pages/auth/ChangePasswordPage";
@@ -72,12 +73,12 @@ export default function App() {
   return (
     <>
       <Switch>
-        {/* Root redirect */}
+        {/* Root — landing page for visitors, redirect for authenticated users */}
         <Route path="/">
           {isAuthenticated ? (
             <Redirect to={user?.role === "admin" ? "/admin" : "/dashboard"} />
           ) : (
-            <Redirect to="/login" />
+            <LandingPage />
           )}
         </Route>
 
