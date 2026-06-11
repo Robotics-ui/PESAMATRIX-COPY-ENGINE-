@@ -1,4 +1,5 @@
 - [PesaMatrix Design Preferences](pesamatrix-design.md) — UI must resemble TradePro SaaS screenshot; all purple colors replaced with green.
+- [PesaMatrix Frontend Architecture](pesamatrix-frontend.md) — Full SPA in artifacts/mockup-sandbox; API port 3000, Frontend port 5000; Vite proxies /api to :3000; customFetch must be exported from api-client-react index.ts.
 - [Express Router Scoping](express-router-scoping.md) — Never use router.use(middleware) in sub-routers mounted without a path prefix; use path-prefixed mounting in index.ts instead.
 - [Zod Import in API Server](zod-import.md) — Use import from "zod" (not "zod/v4") in api-server routes; use z.string().email() not z.email() (catalog is zod v3).
 - [Audit Action Enum](audit-action-enum.md) — Only use the 17 values defined in auditActionEnum; no custom strings; map batch runs to nearest existing action with metadata.
