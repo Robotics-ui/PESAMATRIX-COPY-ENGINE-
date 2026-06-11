@@ -310,7 +310,7 @@ export const api = {
     list: () => r<Payment[]>("/api/payments/payments"),
     get: (id: string) => r<Payment>(`/api/payments/payments/${id}`),
     checkStatus: (body: { paymentId: string; checkoutRequestId?: string }) =>
-      r<{ status: PaymentStatus; message: string }>("/api/payments/status", {
+      r<{ status: PaymentStatus; message: string; mpesaRef?: string | null; resultDesc?: string | null }>("/api/payments/status", {
         method: "POST",
         body: JSON.stringify(body),
       }),

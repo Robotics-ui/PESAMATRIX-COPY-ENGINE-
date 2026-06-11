@@ -33,6 +33,7 @@ export const mt5AccountsTable = pgTable(
     synchronizationStatus: syncStatusEnum("synchronization_status").notNull().default("not_synced"),
     isMaster: boolean("is_master").notNull().default(false),
     metaApiAccountId: text("meta_api_account_id"),
+    region: text("region").notNull().default("london"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

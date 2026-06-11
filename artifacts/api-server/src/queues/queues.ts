@@ -19,7 +19,7 @@ const REMOVE_ON_FAIL: DefaultJobOptions["removeOnFail"] = {
 };
 
 function makeQueue<TData>(name: string, defaultJobOptions?: DefaultJobOptions) {
-  return new Queue<TData>(name, {
+  return new Queue<TData, unknown, string>(name, {
     connection: getRedisConnection(),
     defaultJobOptions: {
       removeOnComplete: REMOVE_ON_COMPLETE,
@@ -87,7 +87,7 @@ export async function getQueueStats() {
           q.getDelayedCount(),
           q.getFailedCount(),
           q.getCompletedCount(),
-          q.getPausedCount(),
+          q.getJobCounts("paused").then((c) => c.paused ?? 0),
         ]);
       return {
         name: q.name,

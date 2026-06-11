@@ -1,4 +1,5 @@
 import IORedis from "ioredis";
+import type { ConnectionOptions } from "bullmq";
 import { logger } from "../lib/logger.js";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
@@ -28,11 +29,11 @@ function buildConnection(): IORedis {
 
 let _connection: IORedis | null = null;
 
-export function getRedisConnection(): IORedis {
+export function getRedisConnection(): ConnectionOptions {
   if (!_connection) {
     _connection = buildConnection();
   }
-  return _connection;
+  return _connection as unknown as ConnectionOptions;
 }
 
 export async function closeRedisConnection(): Promise<void> {
