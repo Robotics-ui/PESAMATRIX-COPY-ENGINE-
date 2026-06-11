@@ -3066,3 +3066,315 @@ export const useRegisterMt5CopyFactory = <TError = ErrorType<BadRequestResponse 
       return useMutation(getRegisterMt5CopyFactoryMutationOptions(options));
     }
 
+
+
+// ─── Subscription Settings ────────────────────────────────────────────────────
+
+export type SubscriptionSettingsResponse = {
+  subscriptionFeePerDay: number;
+  minimumSubscriptionDays: number;
+  maximumSubscriptionDays: number;
+};
+
+export const getGetSubscriptionSettingsUrl = () => `/api/subscriptions/settings`;
+
+export const getSubscriptionSettings = async (options?: RequestInit): Promise<SubscriptionSettingsResponse> =>
+  customFetch<SubscriptionSettingsResponse>(getGetSubscriptionSettingsUrl(), { ...options, method: 'GET' });
+
+export const getGetSubscriptionSettingsQueryKey = () => [`/api/subscriptions/settings`] as const;
+
+export const getGetSubscriptionSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getSubscriptionSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionSettings>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetSubscriptionSettingsQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSubscriptionSettings>>> = ({ signal }) =>
+    getSubscriptionSettings({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionSettings>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetSubscriptionSettings<TData = Awaited<ReturnType<typeof getSubscriptionSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionSettings>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSubscriptionSettingsQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Subscription Preview ─────────────────────────────────────────────────────
+
+export type SubscriptionPreviewResponse = {
+  planId: string;
+  planName: string;
+  pricePerDay: number;
+  days: number;
+  tradingDays: number;
+  tradingDaysDescription: string;
+  totalAmount: number;
+  startDate: string;
+  endDate: string;
+  daysUntilExpiry: number;
+  tradingDaysUntilExpiry: number;
+  isRenewal: boolean;
+  existingEndDate: string | null;
+};
+
+export type GetSubscriptionPreviewParams = { planId: string; days: number };
+
+export const getGetSubscriptionPreviewUrl = (params: GetSubscriptionPreviewParams) =>
+  `/api/subscriptions/preview?planId=${encodeURIComponent(params.planId)}&days=${params.days}`;
+
+export const getSubscriptionPreview = async (params: GetSubscriptionPreviewParams, options?: RequestInit): Promise<SubscriptionPreviewResponse> =>
+  customFetch<SubscriptionPreviewResponse>(getGetSubscriptionPreviewUrl(params), { ...options, method: 'GET' });
+
+export const getGetSubscriptionPreviewQueryKey = (params: GetSubscriptionPreviewParams) =>
+  [`/api/subscriptions/preview`, params] as const;
+
+export const getGetSubscriptionPreviewQueryOptions = <TData = Awaited<ReturnType<typeof getSubscriptionPreview>>, TError = ErrorType<unknown>>(
+  params: GetSubscriptionPreviewParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionPreview>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetSubscriptionPreviewQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSubscriptionPreview>>> = ({ signal }) =>
+    getSubscriptionPreview(params, { signal, ...requestOptions });
+  return { queryKey, queryFn, enabled: !!(params.planId && params.days > 0), ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionPreview>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useGetSubscriptionPreview<TData = Awaited<ReturnType<typeof getSubscriptionPreview>>, TError = ErrorType<unknown>>(
+  params: GetSubscriptionPreviewParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionPreview>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSubscriptionPreviewQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Admin Subscription Stats ─────────────────────────────────────────────────
+
+export type AdminSubscriptionStatsResponse = {
+  total: number;
+  active: number;
+  expired: number;
+  pending: number;
+  cancelled: number;
+  totalRevenue: number;
+  activeRevenue: number;
+};
+
+export const getAdminGetSubscriptionStatsUrl = () => `/api/admin/subscriptions/stats`;
+
+export const adminGetSubscriptionStats = async (options?: RequestInit): Promise<AdminSubscriptionStatsResponse> =>
+  customFetch<AdminSubscriptionStatsResponse>(getAdminGetSubscriptionStatsUrl(), { ...options, method: 'GET' });
+
+export const getAdminGetSubscriptionStatsQueryKey = () => [`/api/admin/subscriptions/stats`] as const;
+
+export const getAdminGetSubscriptionStatsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetSubscriptionStats>>, TError = ErrorType<unknown>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof adminGetSubscriptionStats>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getAdminGetSubscriptionStatsQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetSubscriptionStats>>> = ({ signal }) =>
+    adminGetSubscriptionStats({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof adminGetSubscriptionStats>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useAdminGetSubscriptionStats<TData = Awaited<ReturnType<typeof adminGetSubscriptionStats>>, TError = ErrorType<unknown>>(
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof adminGetSubscriptionStats>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminGetSubscriptionStatsQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Admin List Subscriptions (with status/pagination filter) ─────────────────
+
+export type AdminListSubscriptionsFilteredParams = { status?: string; limit?: number; offset?: number };
+
+export const getAdminListSubscriptionsFilteredUrl = (params: AdminListSubscriptionsFilteredParams = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.offset) qs.set('offset', String(params.offset));
+  const q = qs.toString();
+  return `/api/admin/subscriptions${q ? `?${q}` : ''}`;
+};
+
+export const adminListSubscriptionsFiltered = async (params: AdminListSubscriptionsFilteredParams = {}, options?: RequestInit): Promise<unknown> =>
+  customFetch<unknown>(getAdminListSubscriptionsFilteredUrl(params), { ...options, method: 'GET' });
+
+export const getAdminListSubscriptionsFilteredQueryKey = (params: AdminListSubscriptionsFilteredParams = {}) =>
+  [`/api/admin/subscriptions`, params] as const;
+
+export const getAdminListSubscriptionsFilteredQueryOptions = <TData = Awaited<ReturnType<typeof adminListSubscriptionsFiltered>>, TError = ErrorType<unknown>>(
+  params: AdminListSubscriptionsFilteredParams = {},
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof adminListSubscriptionsFiltered>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getAdminListSubscriptionsFilteredQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListSubscriptionsFiltered>>> = ({ signal }) =>
+    adminListSubscriptionsFiltered(params, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof adminListSubscriptionsFiltered>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export function useAdminListSubscriptionsFiltered<TData = Awaited<ReturnType<typeof adminListSubscriptionsFiltered>>, TError = ErrorType<unknown>>(
+  params: AdminListSubscriptionsFilteredParams = {},
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof adminListSubscriptionsFiltered>>, TError, TData>; request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminListSubscriptionsFilteredQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Renew Subscription ───────────────────────────────────────────────────────
+
+export type RenewSubscriptionRequest = { planId: string; days: number; phone?: string };
+export type RenewSubscriptionResponse = { message: string; paymentId: string; subscriptionId: string; checkoutRequestId: string; amount: number; renewalStartDate: string };
+
+export const renewSubscription = async (body: RenewSubscriptionRequest, options?: RequestInit): Promise<RenewSubscriptionResponse> =>
+  customFetch<RenewSubscriptionResponse>(`/api/subscriptions/renew`, {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(body),
+  });
+
+export const getRenewSubscriptionMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof renewSubscription>>, TError, { data: BodyType<RenewSubscriptionRequest> }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof renewSubscription>>, TError, { data: BodyType<RenewSubscriptionRequest> }, TContext> => {
+  const mutationKey = ['renewSubscription'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof renewSubscription>>, { data: BodyType<RenewSubscriptionRequest> }> = (props) =>
+    renewSubscription(props.data, requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useRenewSubscription = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof renewSubscription>>, TError, { data: BodyType<RenewSubscriptionRequest> }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof renewSubscription>>, TError, { data: BodyType<RenewSubscriptionRequest> }, TContext> =>
+  useMutation(getRenewSubscriptionMutationOptions(options));
+
+// ─── Cancel Subscription ──────────────────────────────────────────────────────
+
+export const cancelSubscription = async (id: string, options?: RequestInit): Promise<{ message: string }> =>
+  customFetch<{ message: string }>(`/api/subscriptions/${id}/cancel`, { ...options, method: 'POST' });
+
+export const getCancelSubscriptionMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof cancelSubscription>>, TError, { id: string }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof cancelSubscription>>, TError, { id: string }, TContext> => {
+  const mutationKey = ['cancelSubscription'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelSubscription>>, { id: string }> = (props) =>
+    cancelSubscription(props.id, requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useCancelSubscription = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof cancelSubscription>>, TError, { id: string }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof cancelSubscription>>, TError, { id: string }, TContext> =>
+  useMutation(getCancelSubscriptionMutationOptions(options));
+
+// ─── Admin: Expire Subscription ───────────────────────────────────────────────
+
+export const adminExpireSubscription = async (id: string, options?: RequestInit): Promise<{ message: string }> =>
+  customFetch<{ message: string }>(`/api/admin/subscriptions/${id}/expire`, { ...options, method: 'POST' });
+
+export const getAdminExpireSubscriptionMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminExpireSubscription>>, TError, { id: string }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof adminExpireSubscription>>, TError, { id: string }, TContext> => {
+  const mutationKey = ['adminExpireSubscription'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminExpireSubscription>>, { id: string }> = (props) =>
+    adminExpireSubscription(props.id, requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useAdminExpireSubscription = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminExpireSubscription>>, TError, { id: string }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof adminExpireSubscription>>, TError, { id: string }, TContext> =>
+  useMutation(getAdminExpireSubscriptionMutationOptions(options));
+
+// ─── Admin: Cancel Subscription ───────────────────────────────────────────────
+
+export const adminCancelSubscription = async (id: string, options?: RequestInit): Promise<{ message: string }> =>
+  customFetch<{ message: string }>(`/api/admin/subscriptions/${id}/cancel`, { ...options, method: 'POST' });
+
+export const getAdminCancelSubscriptionMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminCancelSubscription>>, TError, { id: string }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof adminCancelSubscription>>, TError, { id: string }, TContext> => {
+  const mutationKey = ['adminCancelSubscription'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminCancelSubscription>>, { id: string }> = (props) =>
+    adminCancelSubscription(props.id, requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useAdminCancelSubscription = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminCancelSubscription>>, TError, { id: string }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof adminCancelSubscription>>, TError, { id: string }, TContext> =>
+  useMutation(getAdminCancelSubscriptionMutationOptions(options));
+
+// ─── Admin: Activate Subscription ────────────────────────────────────────────
+
+export type AdminActivateSubscriptionRequest = { subscriptionId: string };
+
+export const adminActivateSubscription = async (body: AdminActivateSubscriptionRequest, options?: RequestInit): Promise<{ message: string }> =>
+  customFetch<{ message: string }>(`/api/admin/subscriptions/activate`, {
+    ...options, method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(body),
+  });
+
+export const getAdminActivateSubscriptionMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminActivateSubscription>>, TError, { data: AdminActivateSubscriptionRequest }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof adminActivateSubscription>>, TError, { data: AdminActivateSubscriptionRequest }, TContext> => {
+  const mutationKey = ['adminActivateSubscription'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminActivateSubscription>>, { data: AdminActivateSubscriptionRequest }> = (props) =>
+    adminActivateSubscription(props.data, requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useAdminActivateSubscription = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminActivateSubscription>>, TError, { data: AdminActivateSubscriptionRequest }, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof adminActivateSubscription>>, TError, { data: AdminActivateSubscriptionRequest }, TContext> =>
+  useMutation(getAdminActivateSubscriptionMutationOptions(options));
+
+// ─── Admin: Process Expired Subscriptions ────────────────────────────────────
+
+export type AdminProcessExpiredResponse = { message: string; scanned: number; queued: number; alreadyQueued: number };
+
+export const adminProcessExpiredSubscriptions = async (options?: RequestInit): Promise<AdminProcessExpiredResponse> =>
+  customFetch<AdminProcessExpiredResponse>(`/api/admin/subscriptions/process-expired`, { ...options, method: 'POST' });
+
+export const getAdminProcessExpiredMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminProcessExpiredSubscriptions>>, TError, void, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof adminProcessExpiredSubscriptions>>, TError, void, TContext> => {
+  const mutationKey = ['adminProcessExpiredSubscriptions'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminProcessExpiredSubscriptions>>, void> = () =>
+    adminProcessExpiredSubscriptions(requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useAdminProcessExpiredSubscriptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof adminProcessExpiredSubscriptions>>, TError, void, TContext>; request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof adminProcessExpiredSubscriptions>>, TError, void, TContext> =>
+  useMutation(getAdminProcessExpiredMutationOptions(options));
