@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
-import { db, mt5AccountsTable, metaApiAccountsTable, adminSettingsTable, copyFactoryRelationshipsTable } from "@workspace/db";
+import { db, mt5AccountsTable, metaApiAccountsTable, adminSettingsTable } from "@workspace/db";
 import { metaApiService } from "./metaapi.service.js";
 import { copyFactoryService } from "./copyfactory.service.js";
+import { subscriberService } from "./subscriber.service.js";
 import { logger } from "../lib/logger.js";
 
 const MASTER_SETTINGS_KEY = "default";
@@ -210,12 +211,6 @@ export class DeploymentService {
 
       await metaApiService.deployAccount(metaApiAccount.id);
 
-      await copyFactoryService.addSubscriber(
-        metaApiAccount.id,
-        settings.copyFactoryStrategyId,
-        multiplier ?? 1.0,
-      );
-
       await db
         .update(mt5AccountsTable)
         .set({ deploymentStatus: "deployed", updatedAt: new Date() })
@@ -226,29 +221,16 @@ export class DeploymentService {
         .set({ state: "deployed", updatedAt: new Date() })
         .where(eq(metaApiAccountsTable.id, metaApiDbRecord.id));
 
-      const [cfRelationship] = await db
-        .insert(copyFactoryRelationshipsTable)
-        .values({
-          subscriberUserId: userId,
-          subscriberMetaApiAccountId: metaApiDbRecord.id,
-          masterMetaApiAccountId: (await db
-            .select({ id: metaApiAccountsTable.id })
-            .from(metaApiAccountsTable)
-            .where(eq(metaApiAccountsTable.metaApiId, settings.masterMetaApiAccountId!))
-            .limit(1))[0]?.id ?? metaApiDbRecord.id,
-          copyFactoryStrategyId: settings.copyFactoryStrategyId,
-          copyFactorySubscriberId: metaApiAccount.id,
-          status: "active",
-          multiplier: String(multiplier ?? 1.0),
-          isActive: true,
-          activatedAt: new Date(),
-        })
-        .returning();
+      const cfResult = await subscriberService.registerSubscriber({
+        userId,
+        metaApiAccountId: metaApiAccount.id,
+        multiplier: multiplier ?? 1.0,
+      });
 
       return {
         metaApiAccountId: metaApiAccount.id,
-        copyFactoryStrategyId: settings.copyFactoryStrategyId,
-        copyFactoryRelationshipId: cfRelationship.id,
+        copyFactoryStrategyId: cfResult.strategyId,
+        copyFactoryRelationshipId: cfResult.relationshipId,
         state: metaApiAccount.state,
       };
     } catch (err) {
