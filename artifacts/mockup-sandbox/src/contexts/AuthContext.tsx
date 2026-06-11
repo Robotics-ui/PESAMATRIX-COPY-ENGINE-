@@ -24,6 +24,7 @@ interface AuthContextValue {
   }) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<boolean>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -51,6 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshSession().finally(() => setIsLoading(false));
   }, [refreshSession]);
+
+  const refreshUser = useCallback(async () => {
+    const me = await api.auth.me();
+    setUser(me);
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await api.auth.login({ email, password });
@@ -92,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         refreshSession,
+        refreshUser,
       }}
     >
       {children}

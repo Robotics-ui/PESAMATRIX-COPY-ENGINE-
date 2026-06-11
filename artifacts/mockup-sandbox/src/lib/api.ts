@@ -22,6 +22,7 @@ export interface User {
   firstName: string;
   lastName: string;
   phone: string | null;
+  mustChangePassword?: boolean;
   createdAt: string;
 }
 
@@ -232,6 +233,12 @@ export const api = {
       r<{ accessToken: string }>("/api/auth/refresh", { method: "POST" }),
 
     me: () => r<User>("/api/auth/me"),
+
+    changePassword: (body: { currentPassword: string; newPassword: string }) =>
+      r<{ message: string }>("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   mt5: {

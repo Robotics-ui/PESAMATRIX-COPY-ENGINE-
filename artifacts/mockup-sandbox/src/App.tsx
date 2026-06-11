@@ -9,6 +9,7 @@ import AdminShell from "@/components/layout/AdminShell";
 
 import LoginPage from "@/pages/auth/LoginPage";
 import RegisterPage from "@/pages/auth/RegisterPage";
+import ChangePasswordPage from "@/pages/auth/ChangePasswordPage";
 
 import UserDashboardPage from "@/pages/user/DashboardPage";
 import ConnectMT5Page from "@/pages/user/ConnectMT5Page";
@@ -47,6 +48,9 @@ function ProtectedRoute({
   }
 
   if (!isAuthenticated) return <Redirect to="/login" />;
+
+  if (user?.mustChangePassword) return <Redirect to="/change-password" />;
+
   if (role && user?.role !== role) {
     return <Redirect to={user?.role === "admin" ? "/admin" : "/dashboard"} />;
   }
@@ -93,6 +97,17 @@ export default function App() {
           ) : (
             <AuthLayout>
               <RegisterPage />
+            </AuthLayout>
+          )}
+        </Route>
+        <Route path="/change-password">
+          {!isAuthenticated ? (
+            <Redirect to="/login" />
+          ) : !user?.mustChangePassword ? (
+            <Redirect to={user?.role === "admin" ? "/admin" : "/dashboard"} />
+          ) : (
+            <AuthLayout>
+              <ChangePasswordPage />
             </AuthLayout>
           )}
         </Route>

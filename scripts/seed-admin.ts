@@ -34,8 +34,8 @@ async function main() {
     const passwordHash = await bcrypt.hash(TEMP_PASSWORD, 12);
 
     await pool.query(
-      `INSERT INTO users (email, password_hash, role, first_name, last_name, created_at, updated_at)
-       VALUES ($1, $2, 'admin', $3, $4, NOW(), NOW())`,
+      `INSERT INTO users (email, password_hash, role, first_name, last_name, must_change_password, created_at, updated_at)
+       VALUES ($1, $2, 'admin', $3, $4, TRUE, NOW(), NOW())`,
       [EMAIL, passwordHash, FIRST_NAME, LAST_NAME],
     );
 
@@ -45,7 +45,7 @@ async function main() {
     console.log(`   Email    : ${EMAIL}`);
     console.log(`   Password : ${TEMP_PASSWORD}`);
     console.log("──────────────────────────────────");
-    console.log("⚠️  Change this password after first login.");
+    console.log("⚠️  Admin will be prompted to change password on first login.");
     console.log("");
   } finally {
     await pool.end();

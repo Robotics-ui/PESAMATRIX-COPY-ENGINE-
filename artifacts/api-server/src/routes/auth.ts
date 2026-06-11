@@ -31,6 +31,11 @@ const RefreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
+const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(8, "New password must be at least 8 characters"),
+});
+
 const SALT_ROUNDS = 12;
 const REFRESH_COOKIE = "refresh_token";
 const COOKIE_OPTIONS = {
@@ -120,6 +125,7 @@ router.post("/auth/login", validateBody(LoginSchema), async (req, res) => {
       role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
+      mustChangePassword: user.mustChangePassword,
     },
   });
 });
@@ -173,6 +179,7 @@ router.get("/auth/me", authenticate, async (req: AuthRequest, res) => {
       firstName: usersTable.firstName,
       lastName: usersTable.lastName,
       phone: usersTable.phone,
+      mustChangePassword: usersTable.mustChangePassword,
       createdAt: usersTable.createdAt,
     })
     .from(usersTable)
@@ -186,5 +193,47 @@ router.get("/auth/me", authenticate, async (req: AuthRequest, res) => {
 
   res.json({ user });
 });
+
+router.post(
+  "/auth/change-password",
+  authenticate,
+  validateBody(ChangePasswordSchema),
+  async (req: AuthRequest, res) => {
+    const { currentPassword, newPassword } = req.body as z.infer<typeof ChangePasswordSchema>;
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, req.user!.userId))
+      .limit(1);
+
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const passwordMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!passwordMatch) {
+      res.status(400).json({ error: "Current password is incorrect" });
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      res.status(400).json({ error: "New password must differ from current password" });
+      return;
+    }
+
+    const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+    await db
+      .update(usersTable)
+      .set({ passwordHash: newHash, mustChangePassword: false, updatedAt: new Date() })
+      .where(eq(usersTable.id, req.user!.userId));
+
+    await logAudit("user_login", req, { userId: req.user!.userId, note: "password changed" });
+
+    res.json({ message: "Password updated successfully" });
+  },
+);
 
 export default router;
