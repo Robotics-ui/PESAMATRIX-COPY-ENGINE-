@@ -82,7 +82,7 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-PORT = "8080"
+PORT = "3000"
 NODE_ENV = "development"
 LOG_LEVEL = "info"
 REDIS_URL = "redis://localhost:6379"
