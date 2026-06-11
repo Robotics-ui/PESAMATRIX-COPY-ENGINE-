@@ -137,7 +137,7 @@ async function processJob(job: Job<SubscriptionJobData>): Promise<unknown> {
       }
 
       const now = new Date();
-      const isRenewal = sub.endDate !== null && sub.endDate > now;
+      const isRenewal = sub.status === "active" && sub.endDate !== null && sub.endDate > now;
       const startDate = isRenewal ? sub.endDate! : now;
       // Use trading days (Mon–Fri only) — consistent with payment.service.ts and subscription.service.ts
       const endDate = addTradingDays(startDate, sub.numberOfDays);

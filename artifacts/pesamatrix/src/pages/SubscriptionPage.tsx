@@ -8,7 +8,6 @@ import {
   useGetPaymentHistory,
   useGetSubscriptionSettings,
   useGetSubscriptionPreview,
-  getGetSubscriptionPreviewQueryKey,
   useRenewSubscription,
   useCancelSubscription,
   getGetMySubscriptionQueryKey,
@@ -135,10 +134,9 @@ export default function SubscriptionPage() {
   }, [minDays, maxDays]);
 
   const previewEnabled = !!(selectedPlanId && debouncedDays >= minDays && debouncedDays <= maxDays);
-  const previewParams = { planId: selectedPlanId ?? "", days: debouncedDays };
   const { data: preview, isLoading: previewLoading } = useGetSubscriptionPreview(
-    previewParams,
-    { query: { enabled: previewEnabled, queryKey: getGetSubscriptionPreviewQueryKey(previewParams) } },
+    { planId: selectedPlanId ?? "", days: debouncedDays },
+    { query: { enabled: previewEnabled } },
   );
 
   const totalAmount = selectedPlan

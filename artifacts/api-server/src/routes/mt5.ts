@@ -52,7 +52,7 @@ router.post(
   "/accounts",
   validateBody(RegisterMt5Schema),
   async (req: AuthRequest, res) => {
-    const { login, server, broker, region } = req.body as z.infer<typeof RegisterMt5Schema>;
+    const { login, server, broker } = req.body as z.infer<typeof RegisterMt5Schema>;
 
     const [mt5] = await db
       .insert(mt5AccountsTable)
@@ -61,7 +61,6 @@ router.post(
         login,
         server,
         broker,
-        region: region ?? "london",
         isMaster: false,
         deploymentStatus: "not_deployed",
         synchronizationStatus: "not_synced",
@@ -84,7 +83,7 @@ router.get("/accounts/:id", async (req: AuthRequest, res) => {
   const [mt5] = await db
     .select()
     .from(mt5AccountsTable)
-    .where(and(eq(mt5AccountsTable.id, String(req.params["id"])), eq(mt5AccountsTable.userId, req.user!.userId)))
+    .where(and(eq(mt5AccountsTable.id, req.params.id), eq(mt5AccountsTable.userId, req.user!.userId)))
     .limit(1);
 
   if (!mt5) {
@@ -135,7 +134,7 @@ router.post(
       .from(mt5AccountsTable)
       .where(
         and(
-          eq(mt5AccountsTable.id, String(req.params["id"])),
+          eq(mt5AccountsTable.id, req.params.id),
           eq(mt5AccountsTable.userId, req.user!.userId),
           eq(mt5AccountsTable.isMaster, false),
         ),
@@ -196,7 +195,7 @@ router.get("/accounts/:id/status", async (req: AuthRequest, res) => {
   const [mt5] = await db
     .select({ id: mt5AccountsTable.id })
     .from(mt5AccountsTable)
-    .where(and(eq(mt5AccountsTable.id, String(req.params["id"])), eq(mt5AccountsTable.userId, req.user!.userId)))
+    .where(and(eq(mt5AccountsTable.id, req.params.id), eq(mt5AccountsTable.userId, req.user!.userId)))
     .limit(1);
 
   if (!mt5) {
@@ -229,7 +228,7 @@ router.post(
       .from(mt5AccountsTable)
       .where(
         and(
-          eq(mt5AccountsTable.id, String(req.params["id"])),
+          eq(mt5AccountsTable.id, req.params.id),
           eq(mt5AccountsTable.userId, req.user!.userId),
           eq(mt5AccountsTable.isMaster, false),
         ),
@@ -295,7 +294,7 @@ router.delete("/accounts/:id", async (req: AuthRequest, res) => {
     .from(mt5AccountsTable)
     .where(
       and(
-        eq(mt5AccountsTable.id, String(req.params["id"])),
+        eq(mt5AccountsTable.id, req.params.id),
         eq(mt5AccountsTable.userId, req.user!.userId),
         eq(mt5AccountsTable.isMaster, false),
       ),

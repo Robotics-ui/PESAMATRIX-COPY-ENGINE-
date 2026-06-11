@@ -49,7 +49,7 @@ router.get("/:id", async (req, res) => {
   const [row] = await db
     .select()
     .from(newsTable)
-    .where(eq(newsTable.id, String(req.params["id"])))
+    .where(eq(newsTable.id, req.params.id))
     .limit(1);
 
   if (!row || !row.isPublished) {
@@ -110,7 +110,7 @@ router.put(
     const [existing] = await db
       .select()
       .from(newsTable)
-      .where(eq(newsTable.id, String(req.params["id"])))
+      .where(eq(newsTable.id, req.params.id))
       .limit(1);
 
     if (!existing) {
@@ -126,7 +126,7 @@ router.put(
     const [updated] = await db
       .update(newsTable)
       .set({ ...body, publishedAt, updatedAt: new Date() })
-      .where(eq(newsTable.id, String(req.params["id"])))
+      .where(eq(newsTable.id, req.params.id))
       .returning();
 
     res.json({ news: updated });

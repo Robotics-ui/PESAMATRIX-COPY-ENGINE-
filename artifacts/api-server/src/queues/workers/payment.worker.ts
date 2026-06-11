@@ -57,6 +57,10 @@ async function processJob(job: Job<PaymentJobData>): Promise<unknown> {
       return status;
     }
 
+    default: {
+      const _exhaustive: never = data;
+      throw new Error(`[PaymentWorker] Unknown job type: ${(_exhaustive as PaymentJobData).type}`);
+    }
   }
 }
 

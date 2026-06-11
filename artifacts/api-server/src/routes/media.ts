@@ -39,7 +39,7 @@ router.get("/:id", async (req, res) => {
   const [row] = await db
     .select()
     .from(mediaTable)
-    .where(eq(mediaTable.id, String(req.params["id"])))
+    .where(eq(mediaTable.id, req.params.id))
     .limit(1);
 
   if (!row) {
@@ -84,7 +84,7 @@ router.put(
     const [existing] = await db
       .select()
       .from(mediaTable)
-      .where(eq(mediaTable.id, String(req.params["id"])))
+      .where(eq(mediaTable.id, req.params.id))
       .limit(1);
 
     if (!existing) {
@@ -95,7 +95,7 @@ router.put(
     const [updated] = await db
       .update(mediaTable)
       .set({ ...body, updatedAt: new Date() })
-      .where(eq(mediaTable.id, String(req.params["id"])))
+      .where(eq(mediaTable.id, req.params.id))
       .returning();
 
     res.json({ media: updated });
@@ -107,7 +107,7 @@ router.delete("/:id", authenticate, requireRole("admin"), async (req, res) => {
   const [existing] = await db
     .select()
     .from(mediaTable)
-    .where(eq(mediaTable.id, String(req.params["id"])))
+    .where(eq(mediaTable.id, req.params.id))
     .limit(1);
 
   if (!existing) {
@@ -115,7 +115,7 @@ router.delete("/:id", authenticate, requireRole("admin"), async (req, res) => {
     return;
   }
 
-  await db.delete(mediaTable).where(eq(mediaTable.id, String(req.params["id"])));
+  await db.delete(mediaTable).where(eq(mediaTable.id, req.params.id));
   res.json({ message: "Media deleted" });
 });
 
