@@ -1,0 +1,1 @@
+- [PesaMatrix Design Preferences](pesamatrix-design.md) — UI must resemble TradePro SaaS screenshot; all purple colors replaced with green.
