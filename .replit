@@ -33,19 +33,20 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "redis-server --daemonize yes --port 6379 --logfile /tmp/redis.log 2>/dev/null; echo 'Redis started (API managed by artifacts/api-server workflow)'"
+args = "redis-server --daemonize yes --port 6379 --logfile /tmp/redis.log 2>/dev/null; sleep 0.5 && cd artifacts/api-server && PORT=8080 pnpm run dev"
+waitForPort = 8080
 
 [[workflows.workflow]]
 name = "Start Frontend"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/mockup-sandbox && PORT=5000 BASE_PATH=/ pnpm run dev"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/pesamatrix && PORT=5000 BASE_PATH=/ pnpm run dev"
+waitForPort = 5000
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -65,15 +66,11 @@ externalPort = 80
 
 [[ports]]
 localPort = 6379
-externalPort = 3000
+externalPort = 3002
 
 [[ports]]
 localPort = 8080
-externalPort = 80
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
+externalPort = 8080
 
 [[ports]]
 localPort = 25376
@@ -85,7 +82,6 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-PORT = "3000"
 NODE_ENV = "development"
 LOG_LEVEL = "info"
 REDIS_URL = "redis://localhost:6379"
