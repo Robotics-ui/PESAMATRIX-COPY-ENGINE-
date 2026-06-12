@@ -35,6 +35,10 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.get("/api", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 app.use("/api", router);
 
 if (process.env.NODE_ENV === "production") {
