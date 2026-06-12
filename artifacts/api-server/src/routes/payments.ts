@@ -18,7 +18,7 @@ import { logger } from "../lib/logger.js";
 const router: IRouter = Router();
 
 const InitiatePaymentSchema = z.object({
-  planId: z.string().uuid(),
+  planId: z.string().uuid().optional(),
   numberOfDays: z.number().int().min(1),
   phone: z.string().min(9).max(15).optional(),
 });
@@ -28,9 +28,6 @@ const CheckStatusSchema = z.object({
 });
 
 // ── POST /payments/initiate ───────────────────────────────────────────────────
-/**
- * Initiate M-Pesa STK push. Maps to POST /payments/initiate in OpenAPI spec.
- */
 router.post(
   "/initiate",
   authenticate,
@@ -41,7 +38,7 @@ router.post(
     try {
       const result = await paymentService.initiatePayment({
         userId: req.user!.userId,
-        planId: body.planId ?? "",
+        planId: body.planId ?? null,
         numberOfDays: body.numberOfDays,
         phone: body.phone ?? "",
       });
@@ -74,9 +71,6 @@ router.post(
 );
 
 // ── GET /payments/status/:checkoutRequestId ───────────────────────────────────
-/**
- * Poll payment status by checkout request ID. Maps to GET /payments/status/:id in OpenAPI spec.
- */
 router.get(
   "/status/:checkoutRequestId",
   authenticate,
@@ -105,9 +99,6 @@ router.get(
 );
 
 // ── GET /payments/history ─────────────────────────────────────────────────────
-/**
- * Payment history for the current user. Maps to GET /payments/history in OpenAPI spec.
- */
 router.get("/history", authenticate, async (req: AuthRequest, res) => {
   const payments = await db
     .select()
@@ -173,13 +164,6 @@ router.get("/subscriptions/active", authenticate, async (req: AuthRequest, res) 
 });
 
 // ── POST /payments/pay ────────────────────────────────────────────────────────
-/**
- * Initiate an M-Pesa STK push for a subscription payment.
- *
- * Idempotent: if the user has an in-flight payment (pending/processing)
- * created within the last 10 minutes, returns that existing record instead
- * of firing a new STK push.
- */
 router.post(
   "/pay",
   authenticate,
@@ -190,7 +174,7 @@ router.post(
     try {
       const result = await paymentService.initiatePayment({
         userId: req.user!.userId,
-        planId: body.planId,
+        planId: body.planId ?? null,
         numberOfDays: body.numberOfDays,
         phone: body.phone ?? "",
       });
@@ -237,10 +221,6 @@ router.get("/payments", authenticate, async (req: AuthRequest, res) => {
 });
 
 // ── GET /payments/payments/:id ────────────────────────────────────────────────
-/**
- * Fetch a single payment by its UUID.
- * Scoped to the authenticated user (cannot see other users' payments).
- */
 router.get("/payments/:id", authenticate, async (req: AuthRequest, res) => {
   const { id } = req.params;
 
@@ -255,14 +235,6 @@ router.get("/payments/:id", authenticate, async (req: AuthRequest, res) => {
 });
 
 // ── POST /payments/status ─────────────────────────────────────────────────────
-/**
- * Poll the status of an in-flight payment.
- *
- * If the payment is still `processing`, this endpoint queries Safaricom Daraja
- * directly.  If Daraja confirms success, the full activation workflow runs
- * (subscription activated + CopyFactory registered) so the frontend doesn't
- * need to wait for the async callback.
- */
 router.post(
   "/payments/status",
   authenticate,
@@ -296,19 +268,6 @@ router.post(
 );
 
 // ── POST /payments/mpesa/callback ─────────────────────────────────────────────
-/**
- * M-Pesa STK callback — intentionally unauthenticated (called by Safaricom).
- *
- * Security model:
- *  - We validate structural integrity of the payload (isValidCallback).
- *  - We match CheckoutRequestID against records we created ourselves.
- *  - Unrecognised IDs are silently accepted (200 OK) to prevent Safaricom
- *    from retrying indefinitely with a broken payload.
- *  - Duplicate callbacks are rejected atomically via a conditional DB UPDATE.
- *
- * Pattern: respond 200 IMMEDIATELY, then process asynchronously.
- * This ensures Safaricom always gets a timely response regardless of DB latency.
- */
 router.post("/mpesa/callback", (req, res) => {
   res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
 

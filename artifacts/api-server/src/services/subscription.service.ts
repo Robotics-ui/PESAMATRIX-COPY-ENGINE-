@@ -88,39 +88,72 @@ export class SubscriptionService {
   async updateSettings(
     params: Partial<SubscriptionSettings> & { updatedBy: string },
   ): Promise<SubscriptionSettings> {
+    return this.upsertSettings(params);
+  }
+
+  async upsertSettings(
+    params: Partial<SubscriptionSettings> & { updatedBy: string },
+  ): Promise<SubscriptionSettings> {
     const { updatedBy, ...fields } = params;
 
+    const setValues: Record<string, unknown> = {
+      updatedAt: new Date(),
+      updatedBy,
+    };
+    if (fields.subscriptionFeePerDay !== undefined) setValues["subscriptionFeePerDay"] = String(fields.subscriptionFeePerDay);
+    if (fields.minimumSubscriptionDays !== undefined) setValues["minimumSubscriptionDays"] = fields.minimumSubscriptionDays;
+    if (fields.maximumSubscriptionDays !== undefined) setValues["maximumSubscriptionDays"] = fields.maximumSubscriptionDays;
+    if (fields.winRate !== undefined) setValues["winRate"] = String(fields.winRate);
+    if (fields.totalTradesCount !== undefined) setValues["totalTradesCount"] = fields.totalTradesCount;
+    if (fields.uptimePercent !== undefined) setValues["uptimePercent"] = String(fields.uptimePercent);
+
     await db
-      .update(adminSettingsTable)
-      .set({
-        ...(fields.subscriptionFeePerDay !== undefined && {
-          subscriptionFeePerDay: String(fields.subscriptionFeePerDay),
-        }),
-        ...(fields.minimumSubscriptionDays !== undefined && {
-          minimumSubscriptionDays: fields.minimumSubscriptionDays,
-        }),
-        ...(fields.maximumSubscriptionDays !== undefined && {
-          maximumSubscriptionDays: fields.maximumSubscriptionDays,
-        }),
-        ...(fields.winRate !== undefined && {
-          winRate: String(fields.winRate),
-        }),
-        ...(fields.totalTradesCount !== undefined && {
-          totalTradesCount: fields.totalTradesCount,
-        }),
-        ...(fields.uptimePercent !== undefined && {
-          uptimePercent: String(fields.uptimePercent),
-        }),
-        updatedAt: new Date(),
+      .insert(adminSettingsTable)
+      .values({
+        key: MASTER_SETTINGS_KEY,
+        subscriptionFeePerDay: String(fields.subscriptionFeePerDay ?? 100),
+        minimumSubscriptionDays: fields.minimumSubscriptionDays ?? 7,
+        maximumSubscriptionDays: fields.maximumSubscriptionDays ?? 365,
         updatedBy,
       })
-      .where(eq(adminSettingsTable.key, MASTER_SETTINGS_KEY));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .onConflictDoUpdate({
+        target: adminSettingsTable.key,
+        set: setValues as any,
+      });
 
     return this.getSettings();
   }
 
-  async validateRequest(planId: string, days: number): Promise<SubscriptionValidationResult> {
+  async validateRequest(planId: string | null, days: number): Promise<SubscriptionValidationResult> {
     const errors: string[] = [];
+    const adminSettings = await this.getSettings();
+
+    if (!planId) {
+      const effectiveMinDays = adminSettings.minimumSubscriptionDays;
+      const effectiveMaxDays = adminSettings.maximumSubscriptionDays;
+
+      if (!Number.isInteger(days) || days < 1) {
+        errors.push("Days must be a positive integer");
+      } else {
+        if (days < effectiveMinDays) errors.push(`Minimum subscription is ${effectiveMinDays} trading days`);
+        if (days > effectiveMaxDays) errors.push(`Maximum subscription is ${effectiveMaxDays} trading days`);
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors,
+        plan: {
+          id: "",
+          name: "Standard",
+          pricePerDay: adminSettings.subscriptionFeePerDay,
+          minimumDays: effectiveMinDays,
+          maximumDays: effectiveMaxDays,
+        },
+        effectiveMinDays,
+        effectiveMaxDays,
+      };
+    }
 
     const [plan] = await db
       .select()
@@ -132,7 +165,6 @@ export class SubscriptionService {
       return { valid: false, errors: ["Plan not found or inactive"], plan: null, effectiveMinDays: 1, effectiveMaxDays: 365 };
     }
 
-    const adminSettings = await this.getSettings();
     const effectiveMinDays = Math.max(plan.minimumDays, adminSettings.minimumSubscriptionDays);
     const effectiveMaxDays = Math.min(plan.maximumDays, adminSettings.maximumSubscriptionDays);
 
@@ -161,10 +193,11 @@ export class SubscriptionService {
   /**
    * Calculate pricing preview using trading days (Mon–Fri only).
    * endDate is calculated by adding N trading days to startDate, skipping weekends.
+   * planId is optional — when absent, uses admin settings fee per day.
    */
   async getPricingPreview(params: {
     userId: string;
-    planId: string;
+    planId: string | null;
     days: number;
   }): Promise<PricingPreview> {
     const { userId, planId, days } = params;
@@ -199,7 +232,7 @@ export class SubscriptionService {
     const tradingDaysUntilExpiry = countTradingDaysRemaining(endDate);
 
     return {
-      planId,
+      planId: planId ?? "",
       planName: plan.name,
       pricePerDay: plan.pricePerDay,
       days,
@@ -274,7 +307,7 @@ export class SubscriptionService {
 
   async initiateRenewal(params: {
     userId: string;
-    planId: string;
+    planId: string | null;
     days: number;
     phone: string;
   }): Promise<{ paymentId: string; subscriptionId: string; checkoutRequestId: string; amount: number; customerMessage: string; renewalStartDate: Date }> {
@@ -310,7 +343,7 @@ export class SubscriptionService {
       .insert(subscriptionsTable)
       .values({
         userId,
-        planId,
+        planId: planId ?? null,
         status: "pending",
         isActive: false,
         numberOfDays: days,

@@ -3,9 +3,13 @@ import {
   useGetSubscriberDashboard,
   useGetTradingSignals,
   useGetTradingPerformance,
+  useGetMySubscription,
+  useGetSubscriptionSettings,
   getGetSubscriberDashboardQueryKey,
   getGetTradingSignalsQueryKey,
   getGetTradingPerformanceQueryKey,
+  getGetMySubscriptionQueryKey,
+  getGetSubscriptionSettingsQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +23,18 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { TrendingUp, TrendingDown, Activity, DollarSign, Calendar, Zap } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  DollarSign,
+  Calendar,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  Shield,
+  Clock,
+} from "lucide-react";
 
 function StatCard({
   title,
@@ -58,6 +73,11 @@ function StatCard({
   );
 }
 
+function fmt(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export default function DashboardPage() {
   const { data: dash, isLoading: dashLoading } = useGetSubscriberDashboard({
     query: { queryKey: getGetSubscriberDashboardQueryKey() },
@@ -68,9 +88,17 @@ export default function DashboardPage() {
   const { data: perf, isLoading: perfLoading } = useGetTradingPerformance({
     query: { queryKey: getGetTradingPerformanceQueryKey() },
   });
+  const { data: mySub } = useGetMySubscription({
+    query: { queryKey: getGetMySubscriptionQueryKey() },
+  });
+  const { data: settings } = useGetSubscriptionSettings({
+    query: { queryKey: getGetSubscriptionSettingsQueryKey() },
+  });
 
   const signals = signalsData?.signals ?? [];
   const weeklyData = perf?.weeklyData ?? [];
+  const isSubActive = !!mySub?.isActive;
+  const feePerDay = settings?.subscriptionFeePerDay ?? 100;
 
   return (
     <AppShell>
@@ -111,7 +139,7 @@ export default function DashboardPage() {
               value={`${dash?.winRate ?? 0}%`}
               sub={
                 dash?.winRateChange !== 0
-                  ? `${dash?.winRateChange ?? 0 > 0 ? "+" : ""}${dash?.winRateChange ?? 0}% vs last period`
+                  ? `${(dash?.winRateChange ?? 0) > 0 ? "+" : ""}${dash?.winRateChange ?? 0}% vs last period`
                   : undefined
               }
               icon={TrendingUp}
@@ -130,13 +158,114 @@ export default function DashboardPage() {
             />
             <StatCard
               title="Subscription"
-              value={dash?.isSubscriptionActive ? `${dash?.daysRemaining ?? 0}d left` : "Inactive"}
-              sub={dash?.activePlan ?? undefined}
+              value={isSubActive ? `${dash?.daysRemaining ?? 0}d left` : "Inactive"}
+              sub={isSubActive ? `${mySub?.subscription?.numberOfDays ?? 0} trading days` : undefined}
               icon={Calendar}
-              positive={dash?.isSubscriptionActive}
+              positive={isSubActive}
             />
           </div>
         )}
+
+        {/* ── Subscription Detail Panel ────────────────────────────────────── */}
+        <Card className={`border ${isSubActive ? "border-primary/30 bg-primary/5" : "border-border/50 bg-card"}`}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Shield className="h-4 w-4 text-primary" />
+              Subscription Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!mySub ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
+              </div>
+            ) : isSubActive ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                      Copy Trading
+                    </span>
+                    <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10 text-xs">
+                      Enabled
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5" />
+                      Trading Days Purchased
+                    </span>
+                    <span className="font-medium">{mySub.subscription?.numberOfDays ?? 0} days</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5" />
+                      Days Remaining
+                    </span>
+                    <span className="font-medium text-primary">{mySub.daysRemaining ?? 0} days</span>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Calendar className="h-3.5 w-3.5" />
+                      Expiry Date
+                    </span>
+                    <span className="font-medium">{fmt(mySub.subscription?.endDate)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <DollarSign className="h-3.5 w-3.5" />
+                      Cost Per Day
+                    </span>
+                    <span className="font-medium">KES {feePerDay.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      Total Paid
+                    </span>
+                    <span className="font-medium">
+                      KES {mySub.subscription?.amountPaid
+                        ? parseFloat(mySub.subscription.amountPaid).toLocaleString()
+                        : "—"}
+                    </span>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                {mySub.subscription?.numberOfDays && (
+                  <div className="sm:col-span-2">
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                      <span>Subscription progress</span>
+                      <span>{mySub.daysRemaining ?? 0} / {mySub.subscription.numberOfDays} days</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-primary/20">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, ((mySub.daysRemaining ?? 0) / mySub.subscription.numberOfDays) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-start gap-3">
+                <XCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">No active subscription</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Copy trading is disabled.{" "}
+                    <a href="/subscription" className="text-primary underline">Subscribe now</a>{" "}
+                    — KES {feePerDay.toLocaleString()} per trading day.
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Performance chart + signals list */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

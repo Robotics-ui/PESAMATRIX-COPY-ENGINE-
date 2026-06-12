@@ -3119,10 +3119,14 @@ export type SubscriptionPreviewResponse = {
   existingEndDate: string | null;
 };
 
-export type GetSubscriptionPreviewParams = { planId: string; days: number };
+export type GetSubscriptionPreviewParams = { planId?: string; days: number };
 
-export const getGetSubscriptionPreviewUrl = (params: GetSubscriptionPreviewParams) =>
-  `/api/subscriptions/preview?planId=${encodeURIComponent(params.planId)}&days=${params.days}`;
+export const getGetSubscriptionPreviewUrl = (params: GetSubscriptionPreviewParams) => {
+  const qs = new URLSearchParams();
+  if (params.planId) qs.set('planId', params.planId);
+  qs.set('days', String(params.days));
+  return `/api/subscriptions/preview?${qs.toString()}`;
+};
 
 export const getSubscriptionPreview = async (params: GetSubscriptionPreviewParams, options?: RequestInit): Promise<SubscriptionPreviewResponse> =>
   customFetch<SubscriptionPreviewResponse>(getGetSubscriptionPreviewUrl(params), { ...options, method: 'GET' });
@@ -3138,7 +3142,7 @@ export const getGetSubscriptionPreviewQueryOptions = <TData = Awaited<ReturnType
   const queryKey = queryOptions?.queryKey ?? getGetSubscriptionPreviewQueryKey(params);
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getSubscriptionPreview>>> = ({ signal }) =>
     getSubscriptionPreview(params, { signal, ...requestOptions });
-  return { queryKey, queryFn, enabled: !!(params.planId && params.days > 0), ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionPreview>>, TError, TData> & { queryKey: QueryKey };
+  return { queryKey, queryFn, enabled: !!(params.days && params.days > 0), ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getSubscriptionPreview>>, TError, TData> & { queryKey: QueryKey };
 };
 
 export function useGetSubscriptionPreview<TData = Awaited<ReturnType<typeof getSubscriptionPreview>>, TError = ErrorType<unknown>>(
@@ -3228,7 +3232,7 @@ export function useAdminListSubscriptionsFiltered<TData = Awaited<ReturnType<typ
 
 // ─── Renew Subscription ───────────────────────────────────────────────────────
 
-export type RenewSubscriptionRequest = { planId: string; days: number; phone?: string };
+export type RenewSubscriptionRequest = { planId?: string; days: number; phone?: string };
 export type RenewSubscriptionResponse = { message: string; paymentId: string; subscriptionId: string; checkoutRequestId: string; amount: number; renewalStartDate: string };
 
 export const renewSubscription = async (body: RenewSubscriptionRequest, options?: RequestInit): Promise<RenewSubscriptionResponse> =>

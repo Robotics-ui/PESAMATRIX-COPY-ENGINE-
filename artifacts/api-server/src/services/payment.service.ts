@@ -6,6 +6,7 @@ import {
   plansTable,
   usersTable,
   auditLogsTable,
+  adminSettingsTable,
 } from "@workspace/db";
 import { mpesaService, type MpesaCallbackPayload } from "./mpesa.service.js";
 import { relationshipService } from "./relationship.service.js";
@@ -16,7 +17,7 @@ import { PaymentQueue, NotificationQueue } from "../queues/queues.js";
 
 export interface InitiatePaymentParams {
   userId: string;
-  planId: string;
+  planId: string | null;
   numberOfDays: number;
   phone: string;
 }
@@ -39,13 +40,6 @@ export interface CallbackResult {
   message: string;
 }
 
-
-/**
- * Compute subscription start/end dates using TRADING DAYS (Mon–Fri only).
- * Weekends do not count against the subscription balance.
- * If the subscription is already active and not yet expired, extend from the
- * current endDate (renewal). Otherwise start from now.
- */
 function computeDates(
   currentStatus: string,
   currentEndDate: Date | null,
@@ -64,36 +58,63 @@ function computeDates(
 export class PaymentService {
   /**
    * Create a pending subscription + payment record, then fire an STK push.
-   *
-   * Idempotency: if the user already has a `processing` payment created in the
-   * last 10 minutes, return it immediately without firing a new STK push.
-   * This prevents double-charges when the user taps "Pay" multiple times.
-   *
-   * The subscription becomes active only after the M-Pesa callback confirms
-   * success.
+   * When planId is null, uses admin settings fee per day.
    */
   async initiatePayment(params: InitiatePaymentParams): Promise<InitiatePaymentResult> {
     const { userId, planId, numberOfDays, phone } = params;
 
     logger.info({ userId, planId, numberOfDays }, "[Payment] Initiating payment");
 
-    // ── Step 1: Validate plan ─────────────────────────────────────────────────
-    const [plan] = await db
-      .select()
-      .from(plansTable)
-      .where(and(eq(plansTable.id, planId), eq(plansTable.isActive, true)))
-      .limit(1);
+    // ── Step 1: Resolve fee and validate days ─────────────────────────────────
+    let feePerDay: number;
+    let planName: string;
+    let resolvedPlanId: string | null = null;
 
-    if (!plan) throw new Error("Plan not found or inactive");
+    if (planId) {
+      const [plan] = await db
+        .select()
+        .from(plansTable)
+        .where(and(eq(plansTable.id, planId), eq(plansTable.isActive, true)))
+        .limit(1);
 
-    if (numberOfDays < plan.minimumDays) {
-      throw new Error(`Minimum subscription is ${plan.minimumDays} days`);
+      if (!plan) throw new Error("Plan not found or inactive");
+
+      if (numberOfDays < plan.minimumDays) {
+        throw new Error(`Minimum subscription is ${plan.minimumDays} days`);
+      }
+      if (numberOfDays > plan.maximumDays) {
+        throw new Error(`Maximum subscription is ${plan.maximumDays} days`);
+      }
+
+      feePerDay = Number(plan.pricePerDay);
+      planName = plan.name;
+      resolvedPlanId = plan.id;
+      logger.info({ planId, planName, feePerDay }, "[Payment] Plan validated");
+    } else {
+      const [settings] = await db
+        .select({
+          subscriptionFeePerDay: adminSettingsTable.subscriptionFeePerDay,
+          minimumSubscriptionDays: adminSettingsTable.minimumSubscriptionDays,
+          maximumSubscriptionDays: adminSettingsTable.maximumSubscriptionDays,
+        })
+        .from(adminSettingsTable)
+        .where(eq(adminSettingsTable.key, "default"))
+        .limit(1);
+
+      feePerDay = Number(settings?.subscriptionFeePerDay ?? 100);
+      const minDays = settings?.minimumSubscriptionDays ?? 7;
+      const maxDays = settings?.maximumSubscriptionDays ?? 365;
+      planName = "Standard";
+
+      if (numberOfDays < minDays) {
+        throw new Error(`Minimum subscription is ${minDays} days`);
+      }
+      if (numberOfDays > maxDays) {
+        throw new Error(`Maximum subscription is ${maxDays} days`);
+      }
+
+      logger.info({ feePerDay, minDays, maxDays }, "[Payment] Using admin settings fee (no plan)");
     }
-    if (numberOfDays > plan.maximumDays) {
-      throw new Error(`Maximum subscription is ${plan.maximumDays} days`);
-    }
-
-    logger.info({ planId, planName: plan.name, pricePerDay: plan.pricePerDay }, "[Payment] Plan validated");
 
     // ── Step 2: Validate user ─────────────────────────────────────────────────
     const [user] = await db
@@ -104,14 +125,14 @@ export class PaymentService {
 
     if (!user) throw new Error("User not found");
 
-    const amount = Number(plan.pricePerDay) * numberOfDays;
+    const amount = feePerDay * numberOfDays;
     const billingPhone = phone || user.phone || "";
 
     if (!billingPhone) throw new Error("Phone number is required for M-Pesa payment");
 
     logger.info({ userId, phone: billingPhone, amount }, "[Payment] User and amount resolved");
 
-    // ── Step 3: Idempotency guard — block duplicate STK pushes ────────────────
+    // ── Step 3: Idempotency guard ─────────────────────────────────────────────
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
 
     const [existingProcessing] = await db
@@ -165,7 +186,7 @@ export class PaymentService {
       .insert(subscriptionsTable)
       .values({
         userId,
-        planId,
+        planId: resolvedPlanId,
         status: "pending",
         isActive: false,
         numberOfDays,
@@ -174,11 +195,11 @@ export class PaymentService {
       .returning();
 
     logger.info(
-      { subscriptionId: subscription.id, userId, planId, numberOfDays, amount },
+      { subscriptionId: subscription.id, userId, planId: resolvedPlanId, numberOfDays, amount },
       "[Payment] Pending subscription created",
     );
 
-    // ── Step 5: Create payment record (pending) ────────────────────────────────
+    // ── Step 5: Create payment record (pending) ───────────────────────────────
     const [payment] = await db
       .insert(paymentsTable)
       .values({
@@ -206,11 +227,10 @@ export class PaymentService {
         phone: billingPhone,
         amount,
         accountRef: `PM-${subscription.id.slice(0, 8).toUpperCase()}`,
-        description: `PesaMatrix ${plan.name}`,
+        description: `PesaMatrix ${planName} ${numberOfDays}d`,
         callbackUrl: getMpesaCallbackUrl(),
       });
 
-      // ── Step 7: Mark payment as processing ───────────────────────────────────
       await db
         .update(paymentsTable)
         .set({
@@ -232,9 +252,6 @@ export class PaymentService {
         "[Payment] STK push successful — waiting for M-Pesa callback",
       );
 
-      // ── Step 8: Enqueue background poll job as callback fallback ──────────────
-      // If Safaricom's callback never arrives (network issues, timeout), this
-      // job will poll Daraja directly every 30s for up to 4 attempts (2 minutes).
       await PaymentQueue.add(
         "poll-payment-status",
         {
@@ -244,10 +261,10 @@ export class PaymentService {
           userId,
         },
         {
-          delay: 45_000,       // first poll 45s after STK push (give callback time to arrive)
+          delay: 45_000,
           attempts: 4,
           backoff: { type: "fixed", delay: 30_000 },
-          jobId: `poll:${stkResult.checkoutRequestId}`,   // deduplicate if called twice
+          jobId: `poll:${stkResult.checkoutRequestId}`,
         },
       ).catch((err) => {
         logger.warn(
@@ -255,11 +272,6 @@ export class PaymentService {
           "[Payment] Failed to enqueue poll job — callback is still primary path",
         );
       });
-
-      logger.info(
-        { paymentId: payment.id, checkoutRequestId: stkResult.checkoutRequestId, delayMs: 45_000 },
-        "[Payment] Background poll job enqueued as callback fallback",
-      );
 
       return {
         paymentId: payment.id,
@@ -270,7 +282,6 @@ export class PaymentService {
         amount,
       };
     } catch (err) {
-      // ── Step 8: Rollback on STK failure ──────────────────────────────────────
       const errMsg = err instanceof Error ? err.message : "STK push failed";
 
       logger.error(
@@ -292,21 +303,6 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Process an incoming M-Pesa STK callback from Safaricom.
-   *
-   * Duplicate-callback protection: we use a conditional atomic UPDATE
-   * (`WHERE status = 'processing'`) so only the first callback wins.
-   * Concurrent duplicates see 0 rows affected and short-circuit.
-   *
-   * On success (ResultCode=0):
-   *  1. Mark payment completed with the M-Pesa receipt number
-   *  2. Activate the subscription with computed start/end dates
-   *  3. Register CopyFactory relationship and enable copy trading
-   *
-   * On failure (ResultCode≠0):
-   *  - Mark payment failed and cancel the pending subscription
-   */
   async handleCallback(body: MpesaCallbackPayload): Promise<CallbackResult> {
     const { stkCallback } = body.Body;
     const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } =
@@ -322,7 +318,6 @@ export class PaymentService {
       "[Callback] Received M-Pesa STK callback",
     );
 
-    // ── Step 1: Look up the payment record ────────────────────────────────────
     const [payment] = await db
       .select()
       .from(paymentsTable)
@@ -330,7 +325,7 @@ export class PaymentService {
       .limit(1);
 
     if (!payment) {
-      logger.warn({ checkoutRequestId: CheckoutRequestID }, "[Callback] No payment found for checkoutRequestId — ignoring");
+      logger.warn({ checkoutRequestId: CheckoutRequestID }, "[Callback] No payment found — ignoring");
       return {
         success: false,
         paymentId: "",
@@ -345,9 +340,6 @@ export class PaymentService {
       "[Callback] Payment record found",
     );
 
-    // ── Step 2: Atomic duplicate-callback guard ───────────────────────────────
-    // Only update if status is still 'processing'. If two callbacks arrive
-    // simultaneously, only one UPDATE will find a matching row and win.
     const claimedRows = await db
       .update(paymentsTable)
       .set({ updatedAt: new Date() })
@@ -362,7 +354,7 @@ export class PaymentService {
     if (claimedRows.length === 0) {
       logger.info(
         { paymentId: payment.id, currentStatus: payment.status },
-        "[Callback] Duplicate callback detected — payment already processed, skipping",
+        "[Callback] Duplicate callback detected — already processed",
       );
       return {
         success: payment.status === "completed",
@@ -373,15 +365,7 @@ export class PaymentService {
       };
     }
 
-    logger.info({ paymentId: payment.id }, "[Callback] Callback lock acquired — processing");
-
-    // ── Step 3: Handle failed payment ─────────────────────────────────────────
     if (ResultCode !== 0) {
-      logger.info(
-        { paymentId: payment.id, resultCode: ResultCode, resultDesc: ResultDesc },
-        "[Callback] M-Pesa transaction failed — marking payment failed",
-      );
-
       await db
         .update(paymentsTable)
         .set({
@@ -397,40 +381,22 @@ export class PaymentService {
           .update(subscriptionsTable)
           .set({ status: "cancelled", updatedAt: new Date() })
           .where(eq(subscriptionsTable.id, payment.subscriptionId));
-
-        logger.info(
-          { subscriptionId: payment.subscriptionId },
-          "[Callback] Pending subscription cancelled after failed payment",
-        );
       }
 
-      await db
-        .insert(auditLogsTable)
-        .values({
-          action: "payment_failed",
-          userId: payment.userId,
-          targetId: payment.id,
-          targetType: "payment",
-          metadata: {
-            checkoutRequestId: CheckoutRequestID,
-            resultCode: ResultCode,
-            resultDesc: ResultDesc,
-            subscriptionId: payment.subscriptionId,
-          },
-        })
-        .catch(() => {});
+      await db.insert(auditLogsTable).values({
+        action: "payment_failed",
+        userId: payment.userId,
+        targetId: payment.id,
+        targetType: "payment",
+        metadata: { checkoutRequestId: CheckoutRequestID, resultCode: ResultCode, resultDesc: ResultDesc },
+      }).catch(() => {});
 
-      // ── Notify user of failed payment ─────────────────────────────────────────
       await NotificationQueue.add("payment-failed", {
         type: "payment-failed",
         userId: payment.userId,
         paymentId: payment.id,
         reason: ResultDesc,
-      }).catch((err) => {
-        logger.warn({ err, paymentId: payment.id }, "[Callback] Failed to enqueue payment-failed notification");
-      });
-
-      logger.info({ paymentId: payment.id, resultCode: ResultCode }, "[Callback] payment-failed notification enqueued");
+      }).catch(() => {});
 
       return {
         success: false,
@@ -441,19 +407,10 @@ export class PaymentService {
       };
     }
 
-    // ── Step 4: Extract M-Pesa receipt metadata ───────────────────────────────
     const items = CallbackMetadata?.Item ?? [];
     const mpesaRef = String(mpesaService.extractMetadataItem(items, "MpesaReceiptNumber") ?? "");
     const paidAmount = Number(mpesaService.extractMetadataItem(items, "Amount") ?? payment.amount);
-    const transactionDate = mpesaService.extractMetadataItem(items, "TransactionDate");
-    const phoneUsed = mpesaService.extractMetadataItem(items, "PhoneNumber");
 
-    logger.info(
-      { paymentId: payment.id, mpesaRef, paidAmount, transactionDate, phoneUsed },
-      "[Callback] M-Pesa transaction successful — receipt received",
-    );
-
-    // ── Step 5: Mark payment completed ────────────────────────────────────────
     await db
       .update(paymentsTable)
       .set({
@@ -470,23 +427,17 @@ export class PaymentService {
     let subscriptionId = payment.subscriptionId ?? null;
 
     if (!subscriptionId) {
-      logger.warn({ paymentId: payment.id }, "[Callback] Payment has no linked subscription — skipping activation");
-
-      await db
-        .insert(auditLogsTable)
-        .values({
-          action: "payment_completed",
-          userId: payment.userId,
-          targetId: payment.id,
-          targetType: "payment",
-          metadata: { mpesaRef, paidAmount, checkoutRequestId: CheckoutRequestID },
-        })
-        .catch(() => {});
-
+      logger.warn({ paymentId: payment.id }, "[Callback] Payment has no linked subscription");
+      await db.insert(auditLogsTable).values({
+        action: "payment_completed",
+        userId: payment.userId,
+        targetId: payment.id,
+        targetType: "payment",
+        metadata: { mpesaRef, paidAmount, checkoutRequestId: CheckoutRequestID },
+      }).catch(() => {});
       return { success: true, paymentId: payment.id, subscriptionId: null, mpesaRef, message: "Payment completed" };
     }
 
-    // ── Step 6: Activate subscription ─────────────────────────────────────────
     const [subscription] = await db
       .select({
         id: subscriptionsTable.id,
@@ -501,7 +452,7 @@ export class PaymentService {
       .limit(1);
 
     if (!subscription) {
-      logger.error({ subscriptionId }, "[Callback] Linked subscription not found in DB — cannot activate");
+      logger.error({ subscriptionId }, "[Callback] Linked subscription not found — cannot activate");
       return { success: true, paymentId: payment.id, subscriptionId, mpesaRef, message: "Payment completed but subscription not found" };
     }
 
@@ -509,13 +460,6 @@ export class PaymentService {
       subscription.status,
       subscription.endDate,
       subscription.numberOfDays,
-    );
-
-    logger.info(
-      { subscriptionId, startDate, endDate, isRenewal, numberOfDays: subscription.numberOfDays },
-      isRenewal
-        ? "[Callback] Renewing subscription — extending end date"
-        : "[Callback] Activating new subscription",
     );
 
     await db
@@ -531,265 +475,100 @@ export class PaymentService {
       .where(eq(subscriptionsTable.id, subscriptionId));
 
     logger.info(
-      { subscriptionId, startDate, endDate },
-      "[Callback] Subscription ACTIVATED with expiry date set",
-    );
-
-    // ── Step 7: Register CopyFactory relationship ──────────────────────────────
-    logger.info(
-      { subscriptionId, userId: subscription.userId },
-      "[Callback] Registering CopyFactory relationship and enabling copy trading",
+      { subscriptionId, startDate, endDate, isRenewal },
+      "[Callback] Subscription ACTIVATED",
     );
 
     const cfResult = await relationshipService
-      .onSubscriptionActivated({
-        subscriptionId,
-        userId: subscription.userId,
-      })
+      .onSubscriptionActivated({ subscriptionId, userId: subscription.userId })
       .catch((err) => {
-        logger.error(
-          { err, subscriptionId, userId: subscription.userId },
-          "[Callback] CopyFactory attach failed — will retry via scheduler",
-        );
+        logger.error({ err, subscriptionId }, "[Callback] CopyFactory attach failed — will retry");
         return null;
       });
 
     if (cfResult) {
-      logger.info(
-        {
-          subscriptionId,
-          userId: subscription.userId,
-          relationshipId: cfResult.relationshipId,
-          metaApiAccountId: cfResult.metaApiAccountId,
-          strategyId: cfResult.strategyId,
-        },
-        "[Callback] CopyFactory relationship registered — copy trading ENABLED",
-      );
-    } else {
-      logger.info(
-        { subscriptionId, userId: subscription.userId },
-        "[Callback] CopyFactory attach skipped (no deployed account yet) — will attach at deploy time",
-      );
+      logger.info({ subscriptionId, relationshipId: cfResult.relationshipId }, "[Callback] CopyFactory relationship registered — copy trading ENABLED");
     }
 
-    // ── Step 8: Write audit logs ───────────────────────────────────────────────
-    await db
-      .insert(auditLogsTable)
-      .values({
-        action: "payment_completed",
-        userId: payment.userId,
-        targetId: payment.id,
-        targetType: "payment",
-        metadata: {
-          mpesaRef,
-          paidAmount,
-          checkoutRequestId: CheckoutRequestID,
-          subscriptionId,
-        },
-      })
-      .catch(() => {});
+    await db.insert(auditLogsTable).values({
+      action: "payment_completed",
+      userId: payment.userId,
+      targetId: payment.id,
+      targetType: "payment",
+      metadata: { mpesaRef, paidAmount, checkoutRequestId: CheckoutRequestID, subscriptionId },
+    }).catch(() => {});
 
-    await db
-      .insert(auditLogsTable)
-      .values({
-        action: "subscription_activated",
-        userId: subscription.userId,
-        targetId: subscriptionId,
-        targetType: "subscription",
-        metadata: {
-          mpesaRef,
-          paymentId: payment.id,
-          startDate,
-          endDate,
-          isRenewal,
-          copyFactoryAttached: cfResult !== null,
-        },
-      })
-      .catch(() => {});
+    await db.insert(auditLogsTable).values({
+      action: "subscription_activated",
+      userId: subscription.userId,
+      targetId: subscriptionId,
+      targetType: "subscription",
+      metadata: { mpesaRef, paymentId: payment.id, startDate, endDate, isRenewal, copyFactoryAttached: cfResult !== null },
+    }).catch(() => {});
 
-    // ── Step 9: Enqueue user notifications ────────────────────────────────────
-    // Fire-and-forget — notification delivery must never block the payment flow.
     await NotificationQueue.add("payment-confirmed", {
       type: "payment-confirmed",
       userId: payment.userId,
       mpesaRef,
       amount: paidAmount,
       subscriptionId,
-    }).catch((err) => {
-      logger.warn({ err, paymentId: payment.id }, "[Callback] Failed to enqueue payment-confirmed notification");
-    });
+    }).catch(() => {});
 
     await NotificationQueue.add("subscription-activated", {
       type: "subscription-activated",
       userId: subscription.userId,
       subscriptionId,
       endDate: endDate.toISOString(),
-    }).catch((err) => {
-      logger.warn({ err, subscriptionId }, "[Callback] Failed to enqueue subscription-activated notification");
-    });
+    }).catch(() => {});
 
-    logger.info(
-      { paymentId: payment.id, subscriptionId, userId: payment.userId },
-      "[Callback] payment-confirmed and subscription-activated notifications enqueued",
-    );
-
-    logger.info(
-      {
-        paymentId: payment.id,
-        subscriptionId,
-        mpesaRef,
-        startDate,
-        endDate,
-        copyFactoryAttached: cfResult !== null,
-      },
-      "[Callback] Full payment workflow COMPLETE",
-    );
+    logger.info({ paymentId: payment.id, subscriptionId, mpesaRef }, "[Callback] Callback processing COMPLETE");
 
     return {
       success: true,
       paymentId: payment.id,
       subscriptionId,
       mpesaRef,
-      message: "Payment processed successfully",
+      message: "Payment completed and subscription activated",
     };
   }
 
-  /**
-   * Poll Daraja to check if a pending/processing payment has been confirmed.
-   * Used as a fallback when callbacks are delayed.
-   *
-   * If Daraja confirms the payment succeeded (ResultCode=0), the full
-   * activation workflow is triggered (subscription + CopyFactory).
-   */
-  async checkPaymentStatus(
-    checkoutRequestId: string,
-    userId?: string,
-  ): Promise<{
-    status: string;
-    resultCode: string | null;
-    resultDesc: string | null;
-    mpesaRef: string | null;
-    subscriptionId: string | null;
-    paymentId: string | null;
-  }> {
-    logger.info({ checkoutRequestId }, "[PaymentStatus] Checking payment status");
-
-    const whereClause = userId
-      ? and(
+  async checkPaymentStatus(checkoutRequestId: string, userId: string) {
+    const [payment] = await db
+      .select()
+      .from(paymentsTable)
+      .where(
+        and(
           eq(paymentsTable.checkoutRequestId, checkoutRequestId),
           eq(paymentsTable.userId, userId),
-        )
-      : eq(paymentsTable.checkoutRequestId, checkoutRequestId);
-
-    const [payment] = await db
-      .select()
-      .from(paymentsTable)
-      .where(whereClause)
+        ),
+      )
       .limit(1);
 
-    if (!payment) throw new Error("Payment not found");
-
-    // Already in terminal state — return cached result
-    if (payment.status === "completed" || payment.status === "failed") {
-      logger.info(
-        { paymentId: payment.id, status: payment.status },
-        "[PaymentStatus] Returning cached terminal status",
-      );
-      return {
-        status: payment.status,
-        resultCode: payment.resultCode,
-        resultDesc: payment.resultDesc,
-        mpesaRef: payment.mpesaRef,
-        subscriptionId: payment.subscriptionId ?? null,
-        paymentId: payment.id,
-      };
+    if (!payment) {
+      throw new Error("Payment not found");
     }
 
-    // Query Daraja for live status
-    logger.info({ checkoutRequestId }, "[PaymentStatus] Querying Daraja STK status");
-
-    try {
-      const queryResult = await mpesaService.queryStkStatus(checkoutRequestId);
-
-      logger.info(
-        { checkoutRequestId, resultCode: queryResult.resultCode, resultDesc: queryResult.resultDesc },
-        "[PaymentStatus] Daraja STK query result received",
-      );
-
-      // If Daraja confirms success, trigger the full activation workflow
-      if (queryResult.resultCode === "0") {
-        logger.info(
-          { checkoutRequestId, paymentId: payment.id },
-          "[PaymentStatus] Daraja confirms success — triggering full activation workflow",
-        );
-
-        const syntheticCallback: MpesaCallbackPayload = {
-          Body: {
-            stkCallback: {
-              MerchantRequestID: payment.merchantRequestId ?? "",
-              CheckoutRequestID: checkoutRequestId,
-              ResultCode: 0,
-              ResultDesc: queryResult.resultDesc,
-              CallbackMetadata: { Item: [] },
-            },
-          },
-        };
-
-        const callbackResult = await this.handleCallback(syntheticCallback).catch((err) => {
-          logger.error({ err, paymentId: payment.id }, "[PaymentStatus] Activation via query failed");
-          return null;
-        });
-
-        return {
-          status: "completed",
-          resultCode: "0",
-          resultDesc: queryResult.resultDesc,
-          mpesaRef: callbackResult?.mpesaRef ?? payment.mpesaRef,
-          subscriptionId: callbackResult?.subscriptionId ?? payment.subscriptionId ?? null,
-          paymentId: payment.id,
-        };
-      }
-
-      // Non-zero result code — payment failed or still processing
-      const derivedStatus =
-        queryResult.resultCode === "" ? "processing" : "failed";
-
-      return {
-        status: derivedStatus,
-        resultCode: queryResult.resultCode || null,
-        resultDesc: queryResult.resultDesc,
-        mpesaRef: null,
-        subscriptionId: payment.subscriptionId ?? null,
-        paymentId: payment.id,
-      };
-    } catch (err) {
-      logger.warn({ err, checkoutRequestId }, "[PaymentStatus] STK query failed — returning cached DB status");
-      return {
-        status: payment.status,
-        resultCode: payment.resultCode,
-        resultDesc: payment.resultDesc,
-        mpesaRef: payment.mpesaRef,
-        subscriptionId: payment.subscriptionId ?? null,
-        paymentId: payment.id,
-      };
-    }
+    return {
+      paymentId: payment.id,
+      subscriptionId: payment.subscriptionId,
+      status: payment.status,
+      mpesaRef: payment.mpesaRef,
+      amount: Number(payment.amount),
+      resultCode: payment.resultCode,
+      resultDesc: payment.resultDesc,
+    };
   }
 
-  /**
-   * Fetch a single payment record by its ID, optionally scoped to a user.
-   */
-  async getPaymentById(
-    paymentId: string,
-    userId?: string,
-  ) {
-    const whereClause = userId
-      ? and(eq(paymentsTable.id, paymentId), eq(paymentsTable.userId, userId))
-      : eq(paymentsTable.id, paymentId);
-
+  async getPaymentById(paymentId: string, userId: string) {
     const [payment] = await db
       .select()
       .from(paymentsTable)
-      .where(whereClause)
+      .where(
+        and(
+          eq(paymentsTable.id, paymentId),
+          eq(paymentsTable.userId, userId),
+        ),
+      )
       .limit(1);
 
     return payment ?? null;

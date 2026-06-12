@@ -16,24 +16,24 @@ import type { AuthRequest } from "../middlewares/authenticate.js";
 const router: IRouter = Router();
 
 const PreviewSchema = z.object({
-  planId: z.string().uuid(),
+  planId: z.string().uuid().optional(),
   days: z.number().int().min(1),
 });
 
 const RenewSchema = z.object({
-  planId: z.string().uuid(),
+  planId: z.string().uuid().optional(),
   days: z.number().int().min(1),
   phone: z.string().min(9).max(15).optional(),
 });
 
 const ValidateSchema = z.object({
-  planId: z.string().uuid(),
+  planId: z.string().uuid().optional(),
   days: z.number().int().min(1),
 });
 
 /**
  * Public: subscription settings needed to configure the days slider.
- * Returns effective min/max days and fee per day.
+ * Returns effective min/max days and fee per day from admin settings.
  */
 router.get("/settings", async (_req, res) => {
   const [settings] = await db
@@ -54,7 +54,7 @@ router.get("/settings", async (_req, res) => {
 });
 
 /**
- * Public: list active plans with slider-ready metadata.
+ * Public: list active plans (kept for backward compatibility).
  */
 router.get("/plans", async (_req, res) => {
   const plans = await db
@@ -77,21 +77,21 @@ router.get("/plans", async (_req, res) => {
 
 /**
  * Authenticated: calculate pricing preview for the slider — no writes.
- * Query params: planId, days
+ * Query params: days (required), planId (optional)
  */
 router.get("/preview", authenticate, async (req: AuthRequest, res) => {
-  const planId = req.query["planId"] as string;
+  const planId = req.query["planId"] as string | undefined;
   const days = parseInt(req.query["days"] as string, 10);
 
-  if (!planId || isNaN(days)) {
-    res.status(400).json({ error: "planId and days are required" });
+  if (isNaN(days)) {
+    res.status(400).json({ error: "days is required" });
     return;
   }
 
   try {
     const preview = await subscriptionService.getPricingPreview({
       userId: req.user!.userId,
-      planId,
+      planId: planId || null,
       days,
     });
     res.json(preview);
@@ -102,18 +102,16 @@ router.get("/preview", authenticate, async (req: AuthRequest, res) => {
 });
 
 /**
- * Authenticated: validate days + plan combo and return effective constraints.
- * Used for real-time slider feedback before the user submits.
+ * Authenticated: validate days + optional plan combo.
  */
 router.post("/validate", authenticate, validateBody(ValidateSchema), async (req: AuthRequest, res) => {
   const { planId, days } = req.body as z.infer<typeof ValidateSchema>;
-  const result = await subscriptionService.validateRequest(planId, days);
+  const result = await subscriptionService.validateRequest(planId ?? null, days);
   res.json(result);
 });
 
 /**
- * Authenticated: current user subscription status (active + plan + daysRemaining).
- * Maps to GET /subscriptions/my in OpenAPI spec.
+ * Authenticated: current user subscription status.
  */
 router.get("/my", authenticate, async (req: AuthRequest, res) => {
   const [row] = await db
@@ -153,7 +151,6 @@ router.get("/my", authenticate, async (req: AuthRequest, res) => {
 
 /**
  * Authenticated: subscription history for the current user.
- * Maps to GET /subscriptions/history in OpenAPI spec.
  */
 router.get("/history", authenticate, async (req: AuthRequest, res) => {
   const subscriptions = await db
@@ -183,7 +180,7 @@ router.get("/", authenticate, async (req: AuthRequest, res) => {
 });
 
 /**
- * Authenticated: get the user's active subscription with daysRemaining + CopyFactory status.
+ * Authenticated: get the user's active subscription with full details.
  */
 router.get("/active", authenticate, async (req: AuthRequest, res) => {
   const info = await subscriptionService.getActiveSubscription(req.user!.userId);
@@ -222,7 +219,6 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
 
 /**
  * Authenticated: initiate a renewal payment for an existing subscription.
- * Creates a new pending subscription that will start from the current endDate.
  */
 router.post("/renew", authenticate, validateBody(RenewSchema), async (req: AuthRequest, res) => {
   const body = req.body as z.infer<typeof RenewSchema>;
@@ -230,7 +226,7 @@ router.post("/renew", authenticate, validateBody(RenewSchema), async (req: AuthR
   try {
     const result = await subscriptionService.initiateRenewal({
       userId: req.user!.userId,
-      planId: body.planId,
+      planId: body.planId ?? null,
       days: body.days,
       phone: body.phone ?? "",
     });
@@ -264,7 +260,6 @@ router.post("/renew", authenticate, validateBody(RenewSchema), async (req: AuthR
 
 /**
  * Authenticated: cancel a subscription.
- * Immediately detaches CopyFactory and marks the subscription cancelled.
  */
 router.post("/:id/cancel", authenticate, async (req: AuthRequest, res) => {
   try {

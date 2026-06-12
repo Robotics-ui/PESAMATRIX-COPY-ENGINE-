@@ -159,7 +159,7 @@ export interface AdminSubscriptionsResponse {
 
 export interface PaymentInitiateRequest {
   phone: string;
-  amount: number;
+  amount?: number;
   numberOfDays: number;
   planId?: string;
 }
@@ -366,7 +366,7 @@ export interface AdminSettingsResponse {
 }
 
 export interface AdminSettingsUpdate {
-  subscriptionFeePerDay?: string;
+  subscriptionFeePerDay?: number;
   minimumSubscriptionDays?: number;
   maximumSubscriptionDays?: number;
 }

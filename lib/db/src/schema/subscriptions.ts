@@ -19,7 +19,6 @@ export const subscriptionsTable = pgTable(
       .notNull()
       .references(() => usersTable.id, { onDelete: "cascade" }),
     planId: uuid("plan_id")
-      .notNull()
       .references(() => plansTable.id),
     status: subscriptionStatusEnum("status").notNull().default("pending"),
     isActive: boolean("is_active").notNull().default(false),

@@ -3,7 +3,6 @@ import { AppShell } from "@/components/layout/AppShell";
 import {
   useGetMySubscription,
   useGetSubscriptionHistory,
-  useListPlans,
   useInitiatePayment,
   useGetPaymentHistory,
   useGetSubscriptionSettings,
@@ -12,7 +11,6 @@ import {
   useCancelSubscription,
   getGetMySubscriptionQueryKey,
   getGetSubscriptionHistoryQueryKey,
-  getListPlansQueryKey,
   getGetPaymentHistoryQueryKey,
   getGetSubscriptionSettingsQueryKey,
 } from "@workspace/api-client-react";
@@ -50,8 +48,8 @@ import {
   Zap,
   TrendingUp,
   RefreshCw,
-  AlertTriangle,
   ChevronRight,
+  Shield,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -82,7 +80,6 @@ export default function SubscriptionPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [days, setDays] = useState(30);
   const [phone, setPhone] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -101,47 +98,33 @@ export default function SubscriptionPage() {
   const { data: historyData } = useGetSubscriptionHistory({
     query: { queryKey: getGetSubscriptionHistoryQueryKey() },
   });
-  const { data: plansData, isLoading: plansLoading } = useListPlans({
-    query: { queryKey: getListPlansQueryKey() },
-  });
   const { data: paymentHistory } = useGetPaymentHistory({
     query: { queryKey: getGetPaymentHistoryQueryKey() },
   });
-  const { data: settings } = useGetSubscriptionSettings({
+  const { data: settings, isLoading: settingsLoading } = useGetSubscriptionSettings({
     query: { queryKey: getGetSubscriptionSettingsQueryKey() },
   });
 
-  const plans = plansData?.plans ?? [];
   const payments = paymentHistory?.payments ?? [];
   const subs = historyData?.subscriptions ?? [];
   const isActive = !!mySub?.isActive;
 
-  const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? null;
-
-  const minDays = useMemo(() => {
-    if (!selectedPlan || !settings) return settings?.minimumSubscriptionDays ?? 7;
-    return Math.max(selectedPlan.minimumDays, settings.minimumSubscriptionDays ?? 7);
-  }, [selectedPlan, settings]);
-
-  const maxDays = useMemo(() => {
-    if (!selectedPlan || !settings) return settings?.maximumSubscriptionDays ?? 365;
-    return Math.min(selectedPlan.maximumDays, settings.maximumSubscriptionDays ?? 365);
-  }, [selectedPlan, settings]);
+  const minDays = settings?.minimumSubscriptionDays ?? 7;
+  const maxDays = settings?.maximumSubscriptionDays ?? 365;
+  const feePerDay = settings?.subscriptionFeePerDay ?? 100;
 
   useEffect(() => {
     if (days < minDays) setDays(minDays);
     if (days > maxDays) setDays(maxDays);
   }, [minDays, maxDays]);
 
-  const previewEnabled = !!(selectedPlanId && debouncedDays >= minDays && debouncedDays <= maxDays);
+  const previewEnabled = debouncedDays >= minDays && debouncedDays <= maxDays;
   const { data: preview, isLoading: previewLoading } = useGetSubscriptionPreview(
-    { planId: selectedPlanId ?? "", days: debouncedDays },
+    { planId: "", days: debouncedDays },
     { query: { enabled: previewEnabled } },
   );
 
-  const totalAmount = selectedPlan
-    ? Math.round(parseFloat(selectedPlan.pricePerDay) * days)
-    : 0;
+  const totalAmount = Math.round(feePerDay * days);
 
   const initiateMutation = useInitiatePayment();
   const renewMutation = useRenewSubscription();
@@ -154,12 +137,12 @@ export default function SubscriptionPage() {
   };
 
   const handlePay = () => {
-    if (!selectedPlan || !phone || days < minDays) return;
+    if (!phone || days < minDays) return;
     setStkPending(true);
 
     if (isActive && preview?.isRenewal) {
       renewMutation.mutate(
-        { data: { planId: selectedPlan.id, days, phone } },
+        { data: { days, phone } },
         {
           onSuccess: (resp) => {
             setStkPending(false);
@@ -175,7 +158,7 @@ export default function SubscriptionPage() {
       );
     } else {
       initiateMutation.mutate(
-        { data: { phone, amount: totalAmount, numberOfDays: days, planId: selectedPlan.id } },
+        { data: { phone, numberOfDays: days } },
         {
           onSuccess: (resp) => {
             setStkPending(false);
@@ -209,7 +192,7 @@ export default function SubscriptionPage() {
     );
   };
 
-  const canPay = !!phone && days >= minDays && days <= maxDays && !!selectedPlan;
+  const canPay = !!phone && days >= minDays && days <= maxDays;
 
   return (
     <AppShell>
@@ -219,7 +202,7 @@ export default function SubscriptionPage() {
           <p className="text-muted-foreground text-sm mt-0.5">Manage your copy-trading subscription</p>
         </div>
 
-        {/* ── Active Subscription Card ─────────────────────────────────────── */}
+        {/* ── Active Subscription Card ───────────────────────────────────────── */}
         <Card className="bg-card border-border/50">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -236,7 +219,7 @@ export default function SubscriptionPage() {
                   <div className="flex-1 space-y-1.5">
                     <div className="flex items-center gap-2 flex-wrap">
                       <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
-                      <span className="font-semibold">{mySub.plan?.name ?? "Active Plan"}</span>
+                      <span className="font-semibold">Active Subscription</span>
                       <Badge variant="outline" className={statusColors["active"]}>Active</Badge>
                     </div>
                     <p className="text-sm text-muted-foreground flex items-center gap-1.5">
@@ -247,6 +230,10 @@ export default function SubscriptionPage() {
                       <Clock className="h-3.5 w-3.5 shrink-0" />
                       {mySub.daysRemaining ?? 0} calendar days remaining
                     </p>
+                    <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      {mySub.subscription?.numberOfDays ?? 0} trading days purchased
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="text-3xl font-bold text-primary">{mySub.daysRemaining ?? 0}</p>
@@ -254,7 +241,6 @@ export default function SubscriptionPage() {
                   </div>
                 </div>
 
-                {/* Days-remaining progress bar */}
                 {mySub.subscription?.numberOfDays && (
                   <div>
                     <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
@@ -275,10 +261,7 @@ export default function SubscriptionPage() {
                     size="sm"
                     variant="outline"
                     className="border-primary/40 text-primary hover:bg-primary/10"
-                    onClick={() => {
-                      if (!selectedPlanId && plans.length > 0) setSelectedPlanId(mySub.plan?.id ?? plans[0].id);
-                      document.getElementById("subscribe-form")?.scrollIntoView({ behavior: "smooth" });
-                    }}
+                    onClick={() => document.getElementById("subscribe-form")?.scrollIntoView({ behavior: "smooth" })}
                   >
                     <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                     Renew
@@ -299,202 +282,163 @@ export default function SubscriptionPage() {
                 <XCircle className="h-5 w-5 text-destructive shrink-0" />
                 <div>
                   <p className="font-medium text-foreground">No active subscription</p>
-                  <p className="text-sm">Select a plan below to start copy trading</p>
+                  <p className="text-sm">Choose your trading days below to start copy trading</p>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* ── Plan Selection ────────────────────────────────────────────────── */}
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            {isActive ? "Renew or change plan" : "Choose a plan"}
-          </h2>
-          {plansLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
-            </div>
-          ) : plans.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No plans available yet. Contact support.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {plans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className={`rounded-xl border p-5 cursor-pointer transition-all ${
-                    selectedPlanId === plan.id
-                      ? "border-primary bg-primary/5 ring-1 ring-primary/40"
-                      : "border-border/50 hover:border-primary/30 bg-card"
-                  }`}
-                  onClick={() => setSelectedPlanId(plan.id)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-semibold">{plan.name}</h3>
-                      <p className="text-2xl font-bold text-primary mt-1">
-                        KES {parseFloat(plan.pricePerDay).toFixed(0)}
-                        <span className="text-sm font-normal text-muted-foreground">/day</span>
-                      </p>
+        {/* ── Subscribe / Renew Form ─────────────────────────────────────────── */}
+        <Card id="subscribe-form" className={`bg-card ${isActive ? "border-primary/30" : "border-border/50"}`}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary" />
+              {isActive ? "Renew Subscription" : "New Subscription"}
+              {isActive && (
+                <Badge variant="outline" className="text-xs border-primary/40 text-primary bg-primary/10 ml-1">
+                  Extends current subscription
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {settingsLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+              </div>
+            ) : (
+              <>
+                {/* Days Slider */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Select Trading Days</Label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl font-bold text-primary">{days}</span>
+                      <span className="text-sm text-muted-foreground">days</span>
                     </div>
-                    {selectedPlanId === plan.id && (
-                      <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {plan.minimumDays}–{plan.maximumDays} trading days
-                  </p>
-                  {plan.features?.length > 0 && (
-                    <ul className="mt-3 space-y-1">
-                      {plan.features.slice(0, 4).map((f, i) => (
-                        <li key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <div className="h-1 w-1 rounded-full bg-primary shrink-0" />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
+                  <Slider
+                    min={minDays}
+                    max={maxDays}
+                    step={1}
+                    value={[days]}
+                    onValueChange={([v]) => setDays(v)}
+                    className="py-1"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Min: {minDays}d</span>
+                    <span className="text-primary font-medium">{tradingDaysLabel(days)}</span>
+                    <span>Max: {maxDays}d</span>
+                  </div>
+                </div>
+
+                {/* Pricing Preview Panel */}
+                <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    Subscription Preview
+                  </div>
+
+                  {previewLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Total Amount</span>
+                        <span className="text-xl font-bold text-primary">
+                          KES {(preview?.totalAmount ?? totalAmount).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Cost Per Trading Day</span>
+                        <span className="font-medium">KES {feePerDay.toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Selected Trading Days</span>
+                        <span className="font-medium">{tradingDaysLabel(days)}</span>
+                      </div>
+                      {preview ? (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">
+                              {preview.isRenewal ? "Renewal starts" : "Starts"}
+                            </span>
+                            <span className="font-medium">{fmt(preview.startDate)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Calculated Expiry</span>
+                            <span className="font-medium text-primary">{fmt(preview.endDate)}</span>
+                          </div>
+                          {preview.isRenewal && (
+                            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 flex items-start gap-2 mt-1">
+                              <RefreshCw className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                              <p className="text-xs text-primary">
+                                Renewal stacks onto your current subscription, starting {fmt(preview.existingEndDate)}.
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Calculation</span>
+                          <span className="font-medium">{days} days × KES {feePerDay} = KES {totalAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
 
-        {/* ── Subscribe / Renew Form ────────────────────────────────────────── */}
-        {selectedPlan && (
-          <Card id="subscribe-form" className="bg-card border-primary/30">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Zap className="h-4 w-4 text-primary" />
-                {isActive ? `Renew — ${selectedPlan.name}` : `Subscribe — ${selectedPlan.name}`}
-                {isActive && (
-                  <Badge variant="outline" className="text-xs border-primary/40 text-primary bg-primary/10 ml-1">
-                    Extends current subscription
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-
-              {/* Days Slider */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Trading Days</Label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl font-bold text-primary">{days}</span>
-                    <span className="text-sm text-muted-foreground">days</span>
+                {/* Phone Number */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone">M-Pesa Phone Number</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">+</span>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      className="pl-6"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="254712345678"
+                    />
                   </div>
-                </div>
-                <Slider
-                  min={minDays}
-                  max={maxDays}
-                  step={1}
-                  value={[days]}
-                  onValueChange={([v]) => setDays(v)}
-                  className="py-1"
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Min: {minDays}d</span>
-                  <span className="text-primary font-medium">{tradingDaysLabel(days)}</span>
-                  <span>Max: {maxDays}d</span>
-                </div>
-              </div>
-
-              {/* Pricing Preview Panel */}
-              <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  Subscription Preview
+                  <p className="text-xs text-muted-foreground">Format: 254XXXXXXXXX (Safaricom number)</p>
                 </div>
 
-                {previewLoading ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
+                {/* Copy Trading Note */}
+                <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                  <Shield className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                  <p className="text-xs text-primary">
+                    Copy trading is <strong>automatically enabled</strong> once payment is confirmed and disabled when your subscription expires. Weekends do not reduce your trading day balance.
+                  </p>
+                </div>
+
+                {/* Pay Button */}
+                <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                  <div className="text-sm text-muted-foreground">
+                    {days} trading days ·{" "}
+                    <span className="font-semibold text-foreground">
+                      KES {(preview?.totalAmount ?? totalAmount).toLocaleString()}
+                    </span>
                   </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Total Cost</span>
-                      <span className="text-xl font-bold text-primary">
-                        KES {(preview?.totalAmount ?? totalAmount).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Duration</span>
-                      <span className="font-medium">
-                        {preview?.tradingDaysDescription ?? tradingDaysLabel(days)}
-                      </span>
-                    </div>
-                    {preview ? (
-                      <>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            {preview.isRenewal ? "Renewal starts" : "Starts"}
-                          </span>
-                          <span className="font-medium">{fmt(preview.startDate)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Expires</span>
-                          <span className="font-medium">{fmt(preview.endDate)}</span>
-                        </div>
-                        {preview.isRenewal && (
-                          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 flex items-start gap-2 mt-1">
-                            <RefreshCw className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-                            <p className="text-xs text-primary">
-                              This renewal stacks onto your current subscription and starts {fmt(preview.existingEndDate)}.
-                            </p>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Rate</span>
-                        <span className="font-medium">KES {parseFloat(selectedPlan.pricePerDay).toFixed(0)} / day</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Phone Number */}
-              <div className="space-y-1.5">
-                <Label htmlFor="phone">M-Pesa Phone Number</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">+</span>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    className="pl-6"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="254712345678"
-                  />
+                  <Button
+                    onClick={() => setConfirmOpen(true)}
+                    disabled={!canPay}
+                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                  >
+                    {isActive && preview?.isRenewal ? "Renew with M-Pesa" : "Pay with M-Pesa"}
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">Format: 254XXXXXXXXX (Safaricom number)</p>
-              </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
-              {/* Pay Button */}
-              <div className="flex items-center justify-between pt-1 border-t border-border/40">
-                <div className="text-sm text-muted-foreground">
-                  {days} trading days ·{" "}
-                  <span className="font-semibold text-foreground">
-                    KES {(preview?.totalAmount ?? totalAmount).toLocaleString()}
-                  </span>
-                </div>
-                <Button
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={!canPay}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  {isActive && preview?.isRenewal ? "Renew with M-Pesa" : "Pay with M-Pesa"}
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── Payment History ───────────────────────────────────────────────── */}
+        {/* ── Payment History ────────────────────────────────────────────────── */}
         {payments.length > 0 && (
           <Card className="bg-card border-border/50">
             <CardHeader className="pb-2">
@@ -531,7 +475,7 @@ export default function SubscriptionPage() {
           </Card>
         )}
 
-        {/* ── Subscription History ──────────────────────────────────────────── */}
+        {/* ── Subscription History ───────────────────────────────────────────── */}
         {subs.length > 0 && (
           <Card className="bg-card border-border/50">
             <CardHeader className="pb-2">
@@ -542,20 +486,20 @@ export default function SubscriptionPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border/50">
-                      <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Started</th>
-                      <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Expires</th>
                       <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Days</th>
-                      <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Paid</th>
+                      <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Amount</th>
+                      <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Start</th>
+                      <th className="text-left py-2 pr-4 text-xs text-muted-foreground uppercase tracking-wider">Expiry</th>
                       <th className="text-left py-2 text-xs text-muted-foreground uppercase tracking-wider">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/30">
                     {subs.map((s) => (
                       <tr key={s.id} className="hover:bg-accent/20">
+                        <td className="py-2.5 pr-4 font-medium">{s.numberOfDays}d</td>
+                        <td className="py-2.5 pr-4">KES {parseFloat(s.amountPaid).toLocaleString()}</td>
                         <td className="py-2.5 pr-4 text-muted-foreground">{fmt(s.startDate)}</td>
                         <td className="py-2.5 pr-4 text-muted-foreground">{fmt(s.endDate)}</td>
-                        <td className="py-2.5 pr-4">{s.numberOfDays}d</td>
-                        <td className="py-2.5 pr-4">KES {parseFloat(s.amountPaid).toLocaleString()}</td>
                         <td className="py-2.5">
                           <Badge variant="outline" className={`text-xs capitalize ${statusColors[s.status] ?? ""}`}>{s.status}</Badge>
                         </td>
@@ -567,88 +511,72 @@ export default function SubscriptionPage() {
             </CardContent>
           </Card>
         )}
-      </div>
 
-      {/* ── STK Confirm Dialog ────────────────────────────────────────────────── */}
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Payment</DialogTitle>
-            <DialogDescription>
-              An STK push will be sent to <strong>{phone}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-1">
-            <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Plan</span>
-                <span className="font-medium">{selectedPlan?.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Duration</span>
+        {/* ── Confirm Payment Dialog ─────────────────────────────────────────── */}
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{isActive && preview?.isRenewal ? "Confirm Renewal" : "Confirm Payment"}</DialogTitle>
+              <DialogDescription>
+                An M-Pesa STK push will be sent to <strong>+{phone}</strong>.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Trading Days</span>
                 <span className="font-medium">{tradingDaysLabel(days)}</span>
               </div>
-              {preview && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{preview.isRenewal ? "Renewal starts" : "Starts"}</span>
-                    <span className="font-medium">{fmt(preview.startDate)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Expires</span>
-                    <span className="font-medium">{fmt(preview.endDate)}</span>
-                  </div>
-                </>
-              )}
-              <div className="flex justify-between border-t border-border/40 pt-2 mt-1">
-                <span className="text-muted-foreground font-medium">Total</span>
-                <span className="font-bold text-primary text-lg">
-                  KES {(preview?.totalAmount ?? totalAmount).toLocaleString()}
-                </span>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Cost Per Day</span>
+                <span className="font-medium">KES {feePerDay.toLocaleString()}</span>
               </div>
+              <div className="flex justify-between text-sm font-semibold border-t border-border/50 pt-2 mt-2">
+                <span>Total Amount</span>
+                <span className="text-primary">KES {(preview?.totalAmount ?? totalAmount).toLocaleString()}</span>
+              </div>
+              {preview?.endDate && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Expires</span>
+                  <span className="font-medium">{fmt(preview.endDate)}</span>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => setConfirmOpen(false)} className="flex-1">
-              Cancel
-            </Button>
-            <Button
-              onClick={handlePay}
-              disabled={stkPending || initiateMutation.isPending || renewMutation.isPending}
-              className="flex-1 bg-primary text-primary-foreground"
-            >
-              {stkPending || initiateMutation.isPending || renewMutation.isPending
-                ? "Sending..."
-                : "Confirm & Pay"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            <div className="flex justify-end gap-2 mt-2">
+              <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={stkPending}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handlePay}
+                disabled={stkPending}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {stkPending ? "Sending..." : "Confirm & Pay"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
-      {/* ── Cancel Confirmation ───────────────────────────────────────────────── */}
-      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Cancel Subscription?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This will immediately disable copy trading and remove your CopyFactory relationship. Any remaining days will be forfeited. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep Subscription</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleCancel}
-              disabled={cancelMutation.isPending}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Yes, Cancel"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {/* ── Cancel Confirmation ────────────────────────────────────────────── */}
+        <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel Subscription?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your subscription will be cancelled immediately and copy trading will be disabled. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep Subscription</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleCancel}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Cancel Subscription
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     </AppShell>
   );
 }

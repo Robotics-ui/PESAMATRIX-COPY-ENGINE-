@@ -1,0 +1,117 @@
+Implement the following corrections and enhancements.
+
+SETTINGS PAGE FIX
+
+The Settings page is currently not working.
+
+Requirements:
+
+- Diagnose and fix all Settings page errors.
+- Ensure Settings loads correctly for admin users.
+- Ensure Settings data is saved and retrieved successfully.
+- Add proper validation and error handling.
+- Verify settings persist after page refresh and server restart.
+
+SUBSCRIPTION SETTINGS (ADMIN)
+
+Move subscription configuration to the Admin Dashboard.
+
+Admin must be able to configure:
+
+- Subscription fee per trading day.
+- Minimum subscription days.
+- Maximum subscription days.
+
+Requirements:
+
+- Save settings in database.
+- Changes must take effect immediately.
+- Display current values in Admin Dashboard.
+- Only admin users can modify these values.
+
+USER SUBSCRIPTION FLOW
+
+Remove subscription plans completely.
+
+There should be NO Bronze, Silver, Gold, Monthly, Weekly, or fixed plans.
+
+Instead:
+
+- User selects the exact number of subscription days.
+- Use a slider component.
+- Slider limits must come from Admin Settings.
+- Minimum days = Admin configured minimum.
+- Maximum days = Admin configured maximum.
+
+Dynamic Pricing:
+
+Total Amount = Selected Trading Days × Subscription Fee Per Day
+
+Display:
+
+- Selected Trading Days
+- Cost Per Trading Day
+- Total Amount Payable
+- Calculated Expiry Date
+
+TRADING DAYS LOGIC
+
+Subscription calculations must use trading days only.
+
+Trading Days:
+
+- Monday
+- Tuesday
+- Wednesday
+- Thursday
+- Friday
+
+Non-Trading Days:
+
+- Saturday
+- Sunday
+
+Requirements:
+
+- Weekends must not reduce subscription balance.
+- Expiry date must automatically skip weekends.
+- Display actual expiry date based on trading days.
+
+Example:
+
+20 Trading Days = 4 Trading Weeks
+
+COPY TRADING ACCESS CONTROL
+
+Only paid subscribers should receive copied trades.
+
+Requirements:
+
+When subscription is ACTIVE:
+
+- Subscriber account is attached to CopyFactory strategy.
+- Copy trading is enabled.
+
+When subscription EXPIRES:
+
+- Subscriber account is detached automatically.
+- Copy trading is disabled immediately.
+
+Validation:
+
+- Prevent non-paying users from being attached to CopyFactory.
+- Prevent expired users from receiving copied trades.
+- Verify subscription status before enabling copy trading.
+
+USER DASHBOARD
+
+Add a dedicated Subscription section showing:
+
+- Current subscription status
+- Selected trading days
+- Expiry date
+- Cost per day
+- Total amount paid
+- Copy trading status
+
+Ensure the complete workflow is fully integrated with MetaApi CopyFactory, M-Pesa payments, trading-day calculations, and subscription activation.

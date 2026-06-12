@@ -47,11 +47,8 @@ const AdminActivateSchema = z.object({
   subscriptionId: z.string().uuid(),
 });
 
-// ─── Admin Settings (OpenAPI spec paths) ─────────────────────────────────────
+// ─── Admin Settings ───────────────────────────────────────────────────────────
 
-/**
- * GET /admin/settings — mapped to OpenAPI spec's adminGetSettings.
- */
 router.get("/settings", async (_req, res) => {
   const [settings] = await db
     .select()
@@ -68,16 +65,22 @@ router.get("/settings", async (_req, res) => {
   });
 });
 
-/**
- * PATCH /admin/settings — mapped to OpenAPI spec's adminUpdateSettings.
- */
 router.patch(
   "/settings",
   validateBody(UpdateSettingsSchema),
   async (req: AuthRequest, res) => {
     const body = req.body as z.infer<typeof UpdateSettingsSchema>;
 
-    const updated = await subscriptionService.updateSettings({
+    if (
+      body.minimumSubscriptionDays !== undefined &&
+      body.maximumSubscriptionDays !== undefined &&
+      body.minimumSubscriptionDays > body.maximumSubscriptionDays
+    ) {
+      res.status(400).json({ error: "minimumSubscriptionDays cannot exceed maximumSubscriptionDays" });
+      return;
+    }
+
+    const updated = await subscriptionService.upsertSettings({
       ...body,
       updatedBy: req.user!.userId,
     });
@@ -96,8 +99,6 @@ router.patch(
     });
   },
 );
-
-// ─── Admin Settings ──────────────────────────────────────────────────────────
 
 router.get("/subscription-settings", async (_req, res) => {
   const [settings] = await db
@@ -132,7 +133,7 @@ router.put(
       return;
     }
 
-    const updated = await subscriptionService.updateSettings({
+    const updated = await subscriptionService.upsertSettings({
       ...body,
       updatedBy: req.user!.userId,
     });
@@ -148,7 +149,7 @@ router.put(
   },
 );
 
-// ─── Plan Management ─────────────────────────────────────────────────────────
+// ─── Plan Management ──────────────────────────────────────────────────────────
 
 router.get("/plans", async (_req, res) => {
   const plans = await db
