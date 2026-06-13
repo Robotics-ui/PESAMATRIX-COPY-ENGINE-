@@ -218,8 +218,9 @@ export class PaymentService {
 
     // ── Step 6: Fire STK push ─────────────────────────────────────────────────
     try {
+      const callbackUrl = getMpesaCallbackUrl();
       logger.info(
-        { paymentId: payment.id, phone: billingPhone, amount },
+        { paymentId: payment.id, phone: billingPhone, amount, callbackUrl },
         "[Payment] Firing STK push to Safaricom Daraja",
       );
 
@@ -228,7 +229,7 @@ export class PaymentService {
         amount,
         accountRef: `PM-${subscription.id.slice(0, 8).toUpperCase()}`,
         description: `PesaMatrix ${planName} ${numberOfDays}d`,
-        callbackUrl: getMpesaCallbackUrl(),
+        callbackUrl,
       });
 
       await db

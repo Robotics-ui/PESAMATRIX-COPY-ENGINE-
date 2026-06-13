@@ -11,8 +11,30 @@ import { logger } from "./logger.js";
  * Throws if none of the above is available.
  */
 export function getMpesaCallbackUrl(): string {
-  const explicit = process.env.MPESA_CALLBACK_URL;
-  if (explicit) return explicit;
+  const raw = process.env.MPESA_CALLBACK_URL;
+
+  if (raw) {
+    // Strip surrounding quotes and whitespace that may have been added when
+    // entering the secret value (e.g.  "https://..."  or 'https://...' ).
+    const sanitized = raw
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .trim();
+
+    if (!sanitized.startsWith("https://")) {
+      logger.error(
+        { raw: `${sanitized.slice(0, 40)}…`, hint: "MPESA_CALLBACK_URL must start with https://" },
+        "[M-Pesa] ⚠️  Invalid MPESA_CALLBACK_URL — must be an HTTPS URL",
+      );
+      throw new Error(
+        `MPESA_CALLBACK_URL is not a valid HTTPS URL: "${sanitized.slice(0, 60)}". ` +
+        "Ensure the secret is set to a plain https:// URL with no surrounding quotes.",
+      );
+    }
+
+    logger.info({ callbackUrl: sanitized }, "[M-Pesa] Callback URL resolved from MPESA_CALLBACK_URL secret");
+    return sanitized;
+  }
 
   const replitDomains = process.env.REPLIT_DOMAINS;
   const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
