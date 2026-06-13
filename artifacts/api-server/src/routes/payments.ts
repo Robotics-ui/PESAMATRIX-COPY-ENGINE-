@@ -269,7 +269,14 @@ router.post(
 
 // ── POST /payments/mpesa/callback ─────────────────────────────────────────────
 router.post("/mpesa/callback", (req, res) => {
+  // Respond 200 immediately — Safaricom retries if we take too long
   res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+
+  // Always log the full raw payload for debugging
+  logger.info(
+    { fullPayload: JSON.stringify(req.body) },
+    "[Callback] M-Pesa callback received (raw)",
+  );
 
   if (!mpesaService.isValidCallback(req.body)) {
     logger.warn({ body: req.body }, "[Callback] Invalid M-Pesa callback payload — discarding");
@@ -278,9 +285,11 @@ router.post("/mpesa/callback", (req, res) => {
 
   const checkoutRequestId = req.body?.Body?.stkCallback?.CheckoutRequestID ?? "unknown";
   const resultCode = req.body?.Body?.stkCallback?.ResultCode;
+  const resultDesc = req.body?.Body?.stkCallback?.ResultDesc ?? "";
+  const merchantRequestId = req.body?.Body?.stkCallback?.MerchantRequestID ?? "unknown";
 
   logger.info(
-    { checkoutRequestId, resultCode },
+    { checkoutRequestId, merchantRequestId, resultCode, resultDesc },
     "[Callback] Valid M-Pesa callback received — processing asynchronously",
   );
 
