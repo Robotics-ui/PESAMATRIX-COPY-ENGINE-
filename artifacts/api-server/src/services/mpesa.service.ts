@@ -90,15 +90,28 @@ function getTransactionType(): string {
  */
 export function logMpesaConfigStatus(): void {
   const env = getEnv();
+  const shortcode = process.env.MPESA_SHORTCODE ?? "";
+  const knownSandboxShortcodes = ["174379", "174376", "600000", "600001", "600002"];
+  const isSandboxShortcode = knownSandboxShortcodes.includes(shortcode);
+
   const configured = {
     MPESA_ENV: env,
     MPESA_CONSUMER_KEY: !!process.env.MPESA_CONSUMER_KEY,
     MPESA_CONSUMER_SECRET: !!process.env.MPESA_CONSUMER_SECRET,
-    MPESA_SHORTCODE: !!process.env.MPESA_SHORTCODE,
+    MPESA_SHORTCODE: shortcode || "(not set)",
+    MPESA_SHORTCODE_looks_like_sandbox: isSandboxShortcode,
     MPESA_PASSKEY: !!process.env.MPESA_PASSKEY,
     MPESA_CALLBACK_URL: process.env.MPESA_CALLBACK_URL ?? "(will auto-detect from Replit domain)",
     MPESA_TRANSACTION_TYPE: process.env.MPESA_TRANSACTION_TYPE ?? "CustomerPayBillOnline (default)",
   };
+
+  if (env === "production" && isSandboxShortcode) {
+    logger.error(
+      { shortcode, configured },
+      "[M-Pesa] ⚠️  PRODUCTION mode but SANDBOX shortcode detected — STK push will fail. " +
+      "Use your real production shortcode or set MPESA_ENV=sandbox for testing.",
+    );
+  }
 
   const missing = (["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_SHORTCODE", "MPESA_PASSKEY"] as const)
     .filter((k) => !process.env[k]);
