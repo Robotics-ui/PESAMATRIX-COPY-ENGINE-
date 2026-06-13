@@ -252,19 +252,32 @@ export class DeploymentService {
 
     if (!mt5) throw new Error("MT5 account not found");
 
+    // Clean up MetaApi remotely (best-effort — don't block delete on errors)
     if (mt5.metaApiAccountId) {
       try {
         await metaApiService.undeployAccount(mt5.metaApiAccountId);
         await metaApiService.deleteAccount(mt5.metaApiAccountId);
       } catch (err) {
-        logger.warn({ err }, "MetaApi cleanup error during removal");
+        logger.warn({ err }, "MetaApi cleanup error during removal — continuing with local delete");
       }
     }
 
+    // Delete metaApi DB records linked to this account
     await db
-      .update(mt5AccountsTable)
-      .set({ deploymentStatus: "removed", synchronizationStatus: "not_synced", updatedAt: new Date() })
+      .delete(metaApiAccountsTable)
+      .where(eq(metaApiAccountsTable.mt5AccountId, mt5AccountDbId));
+
+    // Clear admin settings so a new master can be registered
+    await db
+      .delete(adminSettingsTable)
+      .where(eq(adminSettingsTable.key, MASTER_SETTINGS_KEY));
+
+    // Hard-delete the MT5 account row — not a soft "removed" status
+    await db
+      .delete(mt5AccountsTable)
       .where(eq(mt5AccountsTable.id, mt5AccountDbId));
+
+    logger.info({ mt5AccountDbId, login: mt5.login }, "[Deployment] Master account fully removed from DB");
   }
 }
 

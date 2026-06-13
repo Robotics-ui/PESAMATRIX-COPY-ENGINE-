@@ -35,14 +35,20 @@ router.post(
     const { login, password, server, broker, region } = req.body as z.infer<typeof RegisterMasterSchema>;
 
     const existing = await db
-      .select({ id: mt5AccountsTable.id })
+      .select({ id: mt5AccountsTable.id, deploymentStatus: mt5AccountsTable.deploymentStatus })
       .from(mt5AccountsTable)
       .where(eq(mt5AccountsTable.isMaster, true))
       .limit(1);
 
     if (existing.length > 0) {
-      res.status(409).json({ error: "A master account is already registered. Remove it first." });
-      return;
+      const status = existing[0].deploymentStatus;
+      // Auto-clean stale failed/removed records so the user can re-register
+      if (status === "failed" || status === "removed" || status === "not_deployed") {
+        await db.delete(mt5AccountsTable).where(eq(mt5AccountsTable.id, existing[0].id));
+      } else {
+        res.status(409).json({ error: "A master account is already registered. Remove it first." });
+        return;
+      }
     }
 
     const [mt5] = await db
@@ -88,6 +94,8 @@ router.post(
         state: result.state,
       });
     } catch (err: unknown) {
+      // Clean up the orphaned DB record so the user can try again immediately
+      await db.delete(mt5AccountsTable).where(eq(mt5AccountsTable.id, mt5.id)).catch(() => {});
       const message = err instanceof Error ? err.message : "Deployment failed";
       res.status(502).json({ error: message });
     }
@@ -151,8 +159,15 @@ router.post("/master-account/redeploy", async (_req, res) => {
     .where(eq(mt5AccountsTable.isMaster, true))
     .limit(1);
 
-  if (!mt5 || !mt5.metaApiAccountId) {
-    res.status(404).json({ error: "No deployed master account found" });
+  if (!mt5) {
+    res.status(404).json({ error: "No master account configured" });
+    return;
+  }
+
+  if (!mt5.metaApiAccountId) {
+    res.status(422).json({
+      error: "This account was never successfully deployed — it has no MetaApi ID. Remove it and register again.",
+    });
     return;
   }
 
